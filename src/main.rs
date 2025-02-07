@@ -5,6 +5,7 @@ mod gui;
 mod state;
 mod app;
 mod input;
+mod types;
 
 struct Renderer {
     info_window_open: bool,

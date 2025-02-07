@@ -1,19 +1,30 @@
 use std::sync::Arc;
 
 use egui_wgpu::ScreenDescriptor;
+use glam::{Mat3, Vec3};
 use winit::{application::ApplicationHandler, dpi::PhysicalSize, event::WindowEvent, event_loop::ActiveEventLoop, window::Window};
 
 use crate::{input::InputManager, state::State};
 
 pub struct RenderContext {
-
+    camera: Mat3,
+    pub focal_length: f32,
 }
 
 impl RenderContext {
     pub fn new() -> Self {
         Self {
-
+            camera: Mat3::ZERO,
+            focal_length: 1.5,
         }
+    }
+
+    pub fn set_camera(&mut self, position: Vec3, target: Vec3, up: Vec3) {
+        let front = (target - position).normalize();
+        let right = front.cross(up).normalize();
+        let up = right.cross(front).normalize();
+
+        self.camera = Mat3::from_cols(right, up, front)
     }
 }
 
@@ -138,8 +149,15 @@ impl<R: Renderer> App<R> {
                 occlusion_query_set: None,
             });
 
+            pass.set_pipeline(&state.render_pipeline);
+            pass.set_bind_group(0, &state.last_frame_bind_group, &[]);
+            pass.set_bind_group(1, &state.view_bind_group, &[]);
+            pass.draw(0..4, 0..1);
+
             state.gui.renderer.render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
         }
+
+        encoder.copy_texture_to_texture(surface_texture.texture.as_image_copy(), state.last_frame_texture.as_image_copy(), surface_texture.texture.size());
 
         state.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
