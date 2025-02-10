@@ -8,8 +8,11 @@ struct VertexOutput {
 };
 
 struct View {
-    camera: mat3x3<f32>,
+    camera: mat4x4<f32>,
+    position: vec3<f32>,
     focal_length: f32,
+    resolution: vec2<u32>,
+    _padding: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -33,5 +36,12 @@ fn vertex(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4(in.uv, 0.0, 1.0);
+    let frag_coord = in.uv * vec2<f32>(view.resolution.xy);
+    // TODO: jitter frag coord
+    let p = (2.0 * frag_coord - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
+
+    let rd = (view.camera * normalize(vec4(p, view.focal_length, 1.0))).xyz;
+    let ro = view.position;
+
+    return vec4(rd, 1.0);
 }

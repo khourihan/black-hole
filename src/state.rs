@@ -1,4 +1,5 @@
-use glam::Mat3;
+use bytemuck::Zeroable;
+use glam::{Mat3, Mat4, UVec2, Vec4};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
@@ -54,7 +55,8 @@ impl State {
             .expect("failed to create device.");
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let selected_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let selected_format = wgpu::TextureFormat::Bgra8Unorm;
+        // let selected_format = wgpu::TextureFormat::Bgra8UnormSrgb;
         let swapchain_format = swapchain_capabilities
             .formats
             .iter()
@@ -90,7 +92,7 @@ impl State {
             dimension: surface_texture.texture.dimension(),
             format: surface_texture.texture.format(),
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: Default::default()
+            view_formats: &[],
         });
 
         let last_frame_view = last_frame_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -144,8 +146,10 @@ impl State {
         });
 
         let view = View {
-            camera: Mat3::IDENTITY,
+            resolution: [0; 2],
+            camera: Mat4::IDENTITY.to_cols_array(),
             focal_length: 1.5,
+            ..View::zeroed()
         };
 
         let view_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -162,7 +166,7 @@ impl State {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: None,
+                    min_binding_size: std::num::NonZero::new(std::mem::size_of::<View>() as u64),
                 },
                 count: None,
             }],
@@ -208,6 +212,7 @@ impl State {
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
                 conservative: false,
                 ..Default::default()
             },
@@ -242,6 +247,9 @@ impl State {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
+        
+        self.view.resolution[0] = width;
+        self.view.resolution[1] = height;
 
         let surface_texture = self.surface.get_current_texture().unwrap();
 

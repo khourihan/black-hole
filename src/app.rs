@@ -1,30 +1,29 @@
 use std::sync::Arc;
 
 use egui_wgpu::ScreenDescriptor;
-use glam::{Mat3, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use winit::{application::ApplicationHandler, dpi::PhysicalSize, event::WindowEvent, event_loop::ActiveEventLoop, window::Window};
 
 use crate::{input::InputManager, state::State};
 
 pub struct RenderContext {
-    camera: Mat3,
+    camera: Mat4,
+    position: Vec3,
     pub focal_length: f32,
 }
 
 impl RenderContext {
     pub fn new() -> Self {
         Self {
-            camera: Mat3::ZERO,
+            camera: Mat4::IDENTITY,
+            position: Vec3::ZERO,
             focal_length: 1.5,
         }
     }
 
-    pub fn set_camera(&mut self, position: Vec3, target: Vec3, up: Vec3) {
-        let front = (target - position).normalize();
-        let right = front.cross(up).normalize();
-        let up = right.cross(front).normalize();
-
-        self.camera = Mat3::from_cols(right, up, front)
+    pub fn set_camera(&mut self, position: Vec3, rotation: Quat) {
+        self.position = position;
+        self.camera = Mat4::from_quat(rotation);
     }
 }
 
@@ -152,7 +151,7 @@ impl<R: Renderer> App<R> {
             pass.set_pipeline(&state.render_pipeline);
             pass.set_bind_group(0, &state.last_frame_bind_group, &[]);
             pass.set_bind_group(1, &state.view_bind_group, &[]);
-            pass.draw(0..4, 0..1);
+            pass.draw(0..3, 0..1);
 
             state.gui.renderer.render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
         }
@@ -208,6 +207,11 @@ impl<R: Renderer> ApplicationHandler for App<R> {
                 self.renderer.render(&mut self.render_ctx);
 
                 let state = self.state.as_mut().unwrap();
+
+                state.view.camera = self.render_ctx.camera.to_cols_array();
+                state.view.focal_length = self.render_ctx.focal_length;
+
+                state.queue.write_buffer(&state.view_buffer, 0, bytemuck::cast_slice(&[state.view]));
 
                 match self.handle_redraw() {
                     Err(wgpu::SurfaceError::Lost) => self.handle_resized(self.width, self.height),

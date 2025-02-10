@@ -1,9 +1,11 @@
 use bytemuck::{Pod, Zeroable};
-use glam::Mat3;
 
-#[repr(C)]
-#[derive(Pod, Zeroable, Copy, Clone)]
+#[repr(C, align(16))]
+#[derive(Pod, Zeroable, Clone, Copy)]
 pub struct View {
-    pub camera: Mat3,
+    pub camera: [f32; 16],
+    pub position: [f32; 3],
     pub focal_length: f32,
+    pub resolution: [u32; 2],
+    pub _padding: [f32; 2],
 }
