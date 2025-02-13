@@ -212,6 +212,7 @@ impl<R: Renderer> ApplicationHandler for App<R> {
                 let state = self.state.as_mut().unwrap();
 
                 state.view.camera = self.render_ctx.camera.to_cols_array();
+                state.view.position = self.render_ctx.position.to_array();
                 state.view.focal_length = self.render_ctx.focal_length;
 
                 state

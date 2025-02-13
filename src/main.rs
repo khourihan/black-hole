@@ -108,11 +108,11 @@ impl Default for Renderer {
     fn default() -> Self {
         Self {
             center: Vec3::ZERO,
-            radius: 50.0,
+            radius: 30.0,
             pitch: 0.0,
             yaw: 0.0,
             rotation: Quat::IDENTITY,
-            position: Vec3::new(0.0, 0.0, -100.0),
+            position: Vec3::new(0.0, 0.0, 0.0),
             focal_length: 1.5,
             info_window_open: true,
             is_new: true,

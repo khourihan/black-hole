@@ -104,17 +104,17 @@ const Q: f32 = 0.0;
 const eps: f32 = 0.01;
 const timestep: f32 = 0.15;
 
-fn compute_r2(x: vec4<f32>) -> f32 {
+fn r_from_coords(x: vec4<f32>) -> f32 {
     let p = x.yzw;
     let rho = dot(p, p) - a * a;
     let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * p.z * p.z));
-    return r2;
+    return sqrt(r2);
 }
 
 fn metric(x: vec4<f32>) -> mat4x4<f32> {
     let p = x.yzw;
-    let r2 = compute_r2(x);
-    let r = sqrt(r2);
+    let r = r_from_coords(x);
+    let r2 = r * r;
     let k = vec4(1.0, (r * p.x + a * p.y) / (r2 + a * a), (r * p.y - a * p.x) / (r2 + a * a), p.z / r);
     let f = r2 * (2.0 * m * r - Q * Q) / (r2 * r2 + a * a * p.z * p.z);
     return f * mat4x4(k.x * k, k.y * k, k.z * k, k.w * k) + diag(vec4(-1.0, 1.0, 1.0, 1.0));
@@ -151,7 +151,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         p -= timestep * hamiltonian_gradient(x, p);
         x += timestep * inverse(metric(x)) * p;
 
-        let r = sqrt(compute_r2(x));
+        let r = r_from_coords(x);
         captured = r < 1.0 + sqrt(1.0 - a * a);
         if (captured) {
             break;
@@ -163,7 +163,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let out_pos = x.yzw;
     let out_time = x.x;
 
-    let col = textureSample(sky_texture, sky_sampler, out_dir);
+    let col = textureSample(sky_texture, sky_sampler, out_dir) * f32(!captured);
 
     return vec4(col.xyz, 1.0);
 }
