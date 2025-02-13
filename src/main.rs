@@ -112,7 +112,7 @@ impl Default for Renderer {
             pitch: 0.0,
             yaw: 0.0,
             rotation: Quat::IDENTITY,
-            position: Vec3::ZERO,
+            position: Vec3::new(0.0, 0.0, -100.0),
             focal_length: 1.5,
             info_window_open: true,
             is_new: true,
