@@ -1,123 +1,133 @@
-use glam::{Mat4, UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
-use image::Image;
+use std::f32::consts::{PI, TAU};
 
-mod image;
+use glam::{EulerRot, Quat, Vec2, Vec3};
+use input::InputManager;
+use winit::{
+    event::MouseButton,
+    event_loop::{ControlFlow, EventLoop},
+    keyboard::KeyCode,
+};
 
-struct Camera {
+mod app;
+mod gui;
+mod input;
+mod state;
+mod types;
+
+struct Renderer {
     position: Vec3,
-    rotation: Mat4,
+    center: Vec3,
+    radius: f32,
+    yaw: f32,
+    pitch: f32,
+    rotation: Quat,
     focal_length: f32,
+    info_window_open: bool,
+    is_new: bool,
 }
 
-impl Default for Camera {
+impl app::Renderer for Renderer {
+    fn input(&mut self, input: &InputManager) {
+        self.info_window_open ^= input.key_pressed(KeyCode::KeyT);
+
+        let (sdx, sdy) = input.scroll_diff();
+        let (mdx, mdy) = input.mouse_diff();
+        let scroll_diff = Vec2::new(sdx, sdy);
+        let mouse_diff = Vec2::new(mdx, mdy);
+
+        let mut total_pan = Vec2::ZERO;
+        let mut total_orbit = Vec2::ZERO;
+        let mut total_zoom = Vec2::ZERO;
+
+        if input.mouse_held(MouseButton::Right) {
+            total_pan -= mouse_diff * 0.001;
+        }
+
+        if input.mouse_held(MouseButton::Left) {
+            total_orbit -= mouse_diff * 0.0017453293; // 0.1°
+        }
+
+        total_zoom -= scroll_diff * 0.01;
+
+        let mut any = false;
+
+        if total_zoom != Vec2::ZERO {
+            any = true;
+            self.radius *= (-total_zoom.y).exp();
+        }
+
+        if total_orbit != Vec2::ZERO {
+            any = true;
+            self.yaw += total_orbit.x;
+            self.pitch += total_orbit.y;
+
+            if self.yaw > PI {
+                self.yaw -= TAU;
+            }
+            if self.yaw < -PI {
+                self.yaw += TAU;
+            }
+            if self.pitch > PI {
+                self.pitch -= TAU;
+            }
+            if self.pitch < -PI {
+                self.pitch += TAU;
+            }
+        }
+
+        if total_pan != Vec2::ZERO {
+            any = true;
+            let radius = self.radius;
+            self.center += (self.rotation * Vec3::X) * total_pan.x * radius;
+            self.center += (self.rotation * Vec3::Y) * total_pan.y * radius;
+        }
+
+        if any || self.is_new {
+            self.rotation = Quat::from_euler(EulerRot::YXZ, self.yaw, self.pitch, 0.0);
+            self.position = self.center + (self.rotation * Vec3::NEG_Z) * self.radius;
+        }
+
+        self.is_new = false;
+    }
+
+    fn render(&mut self, ctx: &mut app::RenderContext) {
+        ctx.set_camera(self.position, self.rotation);
+        ctx.focal_length = self.focal_length;
+    }
+
+    fn gui(&mut self, ctx: &egui::Context) {
+        // egui::Window::new("")
+        //     .open(&mut self.info_window_open)
+        //     .show(ctx, |ui| {
+        //
+        //     });
+    }
+}
+
+impl Default for Renderer {
     fn default() -> Self {
         Self {
-            position: Vec3::new(0.0, 0.0, -30.0),
-            rotation: Mat4::IDENTITY,
+            center: Vec3::ZERO,
+            radius: 50.0,
+            pitch: 0.0,
+            yaw: 0.0,
+            rotation: Quat::IDENTITY,
+            position: Vec3::new(0.0, 0.0, -100.0),
             focal_length: 1.5,
+            info_window_open: true,
+            is_new: true,
         }
     }
 }
-
-const A: f32 = 0.8;
-const M: f32 = 1.0;
-const Q: f32 = 0.0;
-const EPS: f32 = 0.01;
-const TIMESTEP: f32 = 0.15;
-
-fn r_from_coords(x: Vec4) -> f32 {
-    let p = x.yzw();
-    let rho = p.dot(p) - A * A;
-    let r2 = 0.5 * (rho + f32::sqrt(rho * rho + 4.0 * A * A * p.z * p.z));
-    f32::sqrt(r2)
-}
-
-fn metric(x: Vec4) -> Mat4 {
-    let p = x.yzw();
-    let r = r_from_coords(x);
-    let r2 = r * r;
-    let k = Vec4::new(
-        1.0,
-        (r * p.x + A * p.y) / (r2 + A * A),
-        (r * p.y - A * p.x) / (r2 + A * A),
-        p.z / r,
-    );
-    let f = r2 * (2.0 * M * r - Q * Q) / (r2 * r2 + A * A * p.z * p.z);
-    f * Mat4::from_cols(k.x * k, k.y * k, k.z * k, k.w * k) + Mat4::from_diagonal(Vec4::new(-1.0, 1.0, 1.0, 1.0))
-}
-
-fn hamiltonian(x: Vec4, p: Vec4) -> f32 {
-    let g_inv = metric(x).inverse();
-    0.5 * (g_inv * p).dot(p)
-}
-
-fn hamiltonian_gradient(x: Vec4, p: Vec4) -> Vec4 {
-    (Vec4::new(
-        hamiltonian(x + Vec4::new(EPS, 0.0, 0.0, 0.0), p),
-        hamiltonian(x + Vec4::new(0.0, EPS, 0.0, 0.0), p),
-        hamiltonian(x + Vec4::new(0.0, 0.0, EPS, 0.0), p),
-        hamiltonian(x + Vec4::new(0.0, 0.0, 0.0, EPS), p),
-    ) - hamiltonian(x, p))
-        / EPS
-}
-
-fn trace(ro: Vec3, rd: Vec3) -> Vec3 {
-    let time = 0.0;
-    let mut x = Vec4::new(time, ro.x, ro.y, ro.z);
-    let mut p = metric(x) * Vec4::new(1.0, rd.x, rd.y, rd.z);
-    let mut captured = false;
-
-    let steps = 256;
-    for i in 0..steps {
-        p -= TIMESTEP * hamiltonian_gradient(x, p);
-        x += TIMESTEP * metric(x).inverse() * p;
-
-        let r = r_from_coords(x);
-        captured = r < 1.0 + f32::sqrt(1.0 - A * A);
-        if captured {
-            break;
-        }
-    }
-
-    let dxdt = metric(x).inverse() * p;
-    let dir = dxdt.yzw().normalize();
-    let pos = x.yzw();
-    let time = x.x;
-
-    dir * if captured { 0.0 } else { 1.0 }
-}
-
-const IMAGE_SIZE: UVec2 = UVec2::new(512, 512);
 
 fn main() {
-    let mut image = Image::new_fill(IMAGE_SIZE, [0.0; 3]);
-    let camera = Camera::default();
+    let event_loop = EventLoop::new().unwrap();
 
-    for x in 0..IMAGE_SIZE.x {
-        for y in 0..IMAGE_SIZE.y {
-            let frag_coord = Vec2::new(x as f32, y as f32);
-            let p = (2.0 * frag_coord - IMAGE_SIZE.as_vec2()) / IMAGE_SIZE.y as f32;
+    event_loop.set_control_flow(ControlFlow::Poll);
 
-            let rd = (camera.rotation * Vec3::new(p.x, p.y, camera.focal_length).normalize().extend(1.0))
-                .normalize()
-                .xyz();
+    let renderer = Renderer::default();
 
-            let ro = camera.position;
+    let mut app = app::App::new(renderer);
 
-            let col = trace(ro, rd);
-
-            image.set(x, y, col.to_array())
-        }
-    }
-
-    exr::prelude::write_rgba_file(
-        "black-hole.exr",
-        IMAGE_SIZE.x as usize,
-        IMAGE_SIZE.y as usize,
-        |x, y| {
-            let c = image.get(x as u32, y as u32);
-            (c[0], c[1], c[2], 1.0)
-        },
-    )
-    .unwrap();
+    event_loop.run_app(&mut app).expect("failed to run app.");
 }
