@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use egui_wgpu::ScreenDescriptor;
 use glam::{Mat4, Quat, Vec3};
-use winit::{application::ApplicationHandler, dpi::PhysicalSize, event::WindowEvent, event_loop::ActiveEventLoop, window::Window};
+use winit::{
+    application::ApplicationHandler, dpi::PhysicalSize, event::WindowEvent, event_loop::ActiveEventLoop, window::Window,
+};
 
 use crate::{input::InputManager, state::State};
 
@@ -72,13 +74,7 @@ impl<R: Renderer> App<R> {
             .create_surface(window.clone())
             .expect("failed to create surface.");
 
-        let state = State::new(
-            &self.instance,
-            surface,
-            &window,
-            self.width,
-            self.height,
-        ).await;
+        let state = State::new(&self.instance, surface, &window, self.width, self.height).await;
 
         self.window.get_or_insert(window);
         self.state.get_or_insert(state);
@@ -151,12 +147,20 @@ impl<R: Renderer> App<R> {
             pass.set_pipeline(&state.render_pipeline);
             pass.set_bind_group(0, &state.last_frame_bind_group, &[]);
             pass.set_bind_group(1, &state.view_bind_group, &[]);
+            pass.set_bind_group(2, &state.sky_bind_group, &[]);
             pass.draw(0..3, 0..1);
 
-            state.gui.renderer.render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
+            state
+                .gui
+                .renderer
+                .render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
         }
 
-        encoder.copy_texture_to_texture(surface_texture.texture.as_image_copy(), state.last_frame_texture.as_image_copy(), surface_texture.texture.size());
+        encoder.copy_texture_to_texture(
+            surface_texture.texture.as_image_copy(),
+            state.last_frame_texture.as_image_copy(),
+            surface_texture.texture.size(),
+        );
 
         state.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
@@ -167,9 +171,7 @@ impl<R: Renderer> App<R> {
 
 impl<R: Renderer> ApplicationHandler for App<R> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = event_loop
-            .create_window(Window::default_attributes())
-            .unwrap();
+        let window = event_loop.create_window(Window::default_attributes()).unwrap();
 
         pollster::block_on(self.set_window(window));
     }
@@ -189,7 +191,8 @@ impl<R: Renderer> ApplicationHandler for App<R> {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        if !self.state
+        if !self
+            .state
             .as_mut()
             .unwrap()
             .gui
@@ -211,7 +214,9 @@ impl<R: Renderer> ApplicationHandler for App<R> {
                 state.view.camera = self.render_ctx.camera.to_cols_array();
                 state.view.focal_length = self.render_ctx.focal_length;
 
-                state.queue.write_buffer(&state.view_buffer, 0, bytemuck::cast_slice(&[state.view]));
+                state
+                    .queue
+                    .write_buffer(&state.view_buffer, 0, bytemuck::cast_slice(&[state.view]));
 
                 match self.handle_redraw() {
                     Err(wgpu::SurfaceError::Lost) => self.handle_resized(self.width, self.height),

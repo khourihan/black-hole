@@ -1,5 +1,5 @@
 use bytemuck::Zeroable;
-use glam::{Mat3, Mat4, UVec2, Vec4};
+use glam::Mat4;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
@@ -20,6 +20,9 @@ pub struct State {
     pub last_frame_texture: wgpu::Texture,
     pub last_frame_sampler: wgpu::Sampler,
     pub last_frame_bind_group: wgpu::BindGroup,
+    pub sky_texture: wgpu::Texture,
+    pub sky_sampler: wgpu::Sampler,
+    pub sky_bind_group: wgpu::BindGroup,
 }
 
 impl State {
@@ -181,11 +184,121 @@ impl State {
             }],
         });
 
+        let (sky_image_data, sky_im_width, sky_im_height) = {
+            let right = image::load_from_memory(include_bytes!("../images/sky1/right.png"))
+                .unwrap()
+                .to_rgba8();
+            let left = image::load_from_memory(include_bytes!("../images/sky1/left.png"))
+                .unwrap()
+                .to_rgba8();
+            let top = image::load_from_memory(include_bytes!("../images/sky1/top.png"))
+                .unwrap()
+                .to_rgba8();
+            let bottom = image::load_from_memory(include_bytes!("../images/sky1/bottom.png"))
+                .unwrap()
+                .to_rgba8();
+            let front = image::load_from_memory(include_bytes!("../images/sky1/front.png"))
+                .unwrap()
+                .to_rgba8();
+            let back = image::load_from_memory(include_bytes!("../images/sky1/back.png"))
+                .unwrap()
+                .to_rgba8();
+
+            let (sky_im_width, sky_im_height) = right.dimensions();
+            let mut data: Vec<u8> = Vec::new();
+
+            data.extend(right.as_raw());
+            data.extend(left.as_raw());
+            data.extend(top.as_raw());
+            data.extend(bottom.as_raw());
+            data.extend(front.as_raw());
+            data.extend(back.as_raw());
+
+            (data, sky_im_width, sky_im_height)
+        };
+
+        let sky_image_size = wgpu::Extent3d {
+            width: sky_im_width,
+            height: sky_im_height,
+            depth_or_array_layers: 6,
+        };
+
+        let sky_texture = device.create_texture_with_data(
+            &queue,
+            &wgpu::TextureDescriptor {
+                label: Some("sky_texture"),
+                size: sky_image_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &sky_image_data,
+        );
+
+        let sky_texture_view = sky_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("sky_texture_view"),
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
+
+        let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("sky_texture_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let sky_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sky_bind_group_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let sky_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sky_bind_group"),
+            layout: &sky_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sky_sampler),
+                },
+            ],
+        });
+
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("render_pipeline_layout"),
             bind_group_layouts: &[
                 &last_frame_bind_group_layout,
                 &view_bind_group_layout,
+                &sky_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -240,6 +353,9 @@ impl State {
             last_frame_sampler,
             last_frame_bind_group,
             render_pipeline,
+            sky_texture,
+            sky_sampler,
+            sky_bind_group,
         }
     }
 
@@ -247,7 +363,7 @@ impl State {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
-        
+
         self.view.resolution[0] = width;
         self.view.resolution[1] = height;
 
@@ -261,7 +377,7 @@ impl State {
             dimension: surface_texture.texture.dimension(),
             format: surface_texture.texture.format(),
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: Default::default()
+            view_formats: Default::default(),
         })
     }
 }

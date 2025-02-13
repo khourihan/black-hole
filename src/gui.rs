@@ -1,5 +1,8 @@
 use egui::{ClippedPrimitive, Context};
-use egui_wgpu::{wgpu::{CommandEncoder, Device, Queue, TextureFormat}, Renderer, ScreenDescriptor};
+use egui_wgpu::{
+    wgpu::{CommandEncoder, Device, Queue, TextureFormat},
+    Renderer, ScreenDescriptor,
+};
 use egui_winit::State;
 use winit::{event::WindowEvent, window::Window};
 
@@ -27,13 +30,7 @@ impl GuiRenderer {
             Some(2 * 1024),
         );
 
-        let egui_renderer = Renderer::new(
-            device,
-            output_color_format,
-            output_depth_format,
-            msaa_samples,
-            true,
-        );
+        let egui_renderer = Renderer::new(device, output_color_format, output_depth_format, msaa_samples, true);
 
         GuiRenderer {
             state: egui_state,
@@ -62,15 +59,13 @@ impl GuiRenderer {
 
         self.state.handle_platform_output(window, full_output.platform_output);
 
-        let tris = self.state.egui_ctx().tessellate(full_output.shapes, self.state.egui_ctx().pixels_per_point());
+        let tris = self
+            .state
+            .egui_ctx()
+            .tessellate(full_output.shapes, self.state.egui_ctx().pixels_per_point());
 
-        self.renderer.update_buffers(
-            device,
-            queue,
-            encoder,
-            &tris,
-            screen_descriptor,
-        );
+        self.renderer
+            .update_buffers(device, queue, encoder, &tris, screen_descriptor);
 
         for (id, im_delta) in full_output.textures_delta.set {
             self.renderer.update_texture(device, queue, id, &im_delta);

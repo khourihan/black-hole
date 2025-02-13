@@ -23,6 +23,11 @@ var last_frame_sampler: sampler;
 @group(1) @binding(0)
 var<uniform> view: View;
 
+@group(2) @binding(0)
+var sky_texture: texture_cube<f32>;
+@group(2) @binding(1)
+var sky_sampler: sampler;
+
 @vertex
 fn vertex(in: VertexInput) -> VertexOutput {
     let u = f32((in.vertex_index << 1u) & 2u);
@@ -40,8 +45,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // TODO: jitter frag coord
     let p = (2.0 * frag_coord - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
 
-    let rd = (view.camera * normalize(vec4(p, view.focal_length, 1.0))).xyz;
+    let rd = normalize((view.camera * normalize(vec4(p, view.focal_length, 1.0))).xyz);
     let ro = view.position;
 
-    return vec4(rd, 1.0);
+    let col = textureSample(sky_texture, sky_sampler, rd);
+
+    return vec4(col.xyz, 1.0);
 }

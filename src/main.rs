@@ -2,12 +2,16 @@ use std::f32::consts::{PI, TAU};
 
 use glam::{EulerRot, Quat, Vec2, Vec3};
 use input::InputManager;
-use winit::{event::MouseButton, event_loop::{ControlFlow, EventLoop}, keyboard::KeyCode};
+use winit::{
+    event::MouseButton,
+    event_loop::{ControlFlow, EventLoop},
+    keyboard::KeyCode,
+};
 
-mod gui;
-mod state;
 mod app;
+mod gui;
 mod input;
+mod state;
 mod types;
 
 struct Renderer {

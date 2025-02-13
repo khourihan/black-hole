@@ -1,4 +1,7 @@
-use winit::{event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta, WindowEvent}, keyboard::{KeyCode, PhysicalKey}};
+use winit::{
+    event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    keyboard::{KeyCode, PhysicalKey},
+};
 
 #[derive(Clone)]
 struct CurrentInput {
@@ -48,16 +51,16 @@ impl CurrentInput {
                     }
 
                     self.key_actions.push(KeyAction::PressedOs(*physical_key));
-                }
+                },
                 ElementState::Released => {
                     let physical_key = &event.physical_key;
                     self.keys_held.retain(|x| x != physical_key);
                     self.key_actions.push(KeyAction::Released(*physical_key));
-                }
+                },
             },
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_point = Some((position.x as f32, position.y as f32));
-            }
+            },
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button,
@@ -66,7 +69,7 @@ impl CurrentInput {
                 let button_usize = hash_mouse_button(button);
                 self.mouse_held[button_usize] = true;
                 self.mouse_actions.push(MouseAction::Pressed(*button));
-            }
+            },
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button,
@@ -75,7 +78,7 @@ impl CurrentInput {
                 let button_usize = hash_mouse_button(button);
                 self.mouse_held[button_usize] = false;
                 self.mouse_actions.push(MouseAction::Released(*button));
-            }
+            },
             WindowEvent::MouseWheel { delta, .. } => {
                 const PIXELS_PER_LINE: f64 = 38.0;
 
@@ -83,14 +86,14 @@ impl CurrentInput {
                     MouseScrollDelta::LineDelta(x, y) => {
                         self.x_scroll_diff += x;
                         self.y_scroll_diff += y;
-                    }
+                    },
                     MouseScrollDelta::PixelDelta(delta) => {
                         self.y_scroll_diff += (delta.y / PIXELS_PER_LINE) as f32;
                         self.x_scroll_diff += (delta.x / PIXELS_PER_LINE) as f32;
-                    }
+                    },
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -103,7 +106,6 @@ impl CurrentInput {
         }
     }
 }
-
 
 #[derive(Clone, PartialEq)]
 pub enum KeyAction {
@@ -160,8 +162,8 @@ impl InputManager {
                 if self.current.is_none() {
                     self.current = Some(CurrentInput::new())
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
         if let Some(current) = &mut self.current {
             current.handle_window_event(event);
