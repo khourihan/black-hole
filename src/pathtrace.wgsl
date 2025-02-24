@@ -15,17 +15,17 @@ struct View {
     _padding: vec2<f32>,
 };
 
-@group(0) @binding(0)
-var last_frame: texture_2d<f32>;
-@group(0) @binding(1)
-var last_frame_sampler: sampler;
+// @group(0) @binding(0)
+// var last_frame: texture_2d<f32>;
+// @group(0) @binding(1)
+// var last_frame_sampler: sampler;
 
-@group(1) @binding(0)
+@group(0) @binding(0)
 var<uniform> view: View;
 
-@group(2) @binding(0)
+@group(1) @binding(0)
 var sky_texture: texture_cube<f32>;
-@group(2) @binding(1)
+@group(1) @binding(1)
 var sky_sampler: sampler;
 
 @vertex
@@ -98,11 +98,12 @@ fn diag(a: vec4<f32>) -> mat4x4<f32> {
                 0.0, 0.0, 0.0, a.w);
 }
 
-const a: f32 = 0.8;
+const a: f32 = 0.99;
 const m: f32 = 1.0;
 const Q: f32 = 0.0;
 const eps: f32 = 0.01;
-const timestep: f32 = 0.15;
+const timestep: f32 = 0.05;
+const steps: u32 = 4096u;
 
 fn r_from_coords(x: vec4<f32>) -> f32 {
     let p = x.yzw;
@@ -111,6 +112,7 @@ fn r_from_coords(x: vec4<f32>) -> f32 {
     return sqrt(r2);
 }
 
+// Kerr-Newman Metric
 fn metric(x: vec4<f32>) -> mat4x4<f32> {
     let p = x.yzw;
     let r = r_from_coords(x);
@@ -146,7 +148,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var p = metric(x) * vec4(1.0, rd);
     var captured = false;
 
-    let steps = 256u;
     for (var i = 0u; i < steps; i++) {
         p -= timestep * hamiltonian_gradient(x, p);
         x += timestep * inverse(metric(x)) * p;

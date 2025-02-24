@@ -1,44 +1,33 @@
 use bytemuck::Zeroable;
 use glam::Mat4;
 use wgpu::util::DeviceExt;
-use winit::window::Window;
 
-use crate::{gui::GuiRenderer, types::View};
+use crate::types::View;
 
 pub struct State {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    pub surface_config: wgpu::SurfaceConfiguration,
-    pub surface: wgpu::Surface<'static>,
+    pub target: wgpu::Texture,
+    pub output_staging_buffer: wgpu::Buffer,
     pub scale_factor: f32,
-    pub gui: GuiRenderer,
 
     pub render_pipeline: wgpu::RenderPipeline,
     pub view: View,
     pub view_buffer: wgpu::Buffer,
     pub view_bind_group: wgpu::BindGroup,
-    pub last_frame_texture: wgpu::Texture,
-    pub last_frame_sampler: wgpu::Sampler,
-    pub last_frame_bind_group: wgpu::BindGroup,
     pub sky_texture: wgpu::Texture,
     pub sky_sampler: wgpu::Sampler,
     pub sky_bind_group: wgpu::BindGroup,
 }
 
 impl State {
-    pub async fn new(
-        instance: &wgpu::Instance,
-        surface: wgpu::Surface<'static>,
-        window: &Window,
-        width: u32,
-        height: u32,
-    ) -> Self {
+    pub async fn new(instance: &wgpu::Instance, texture_data: &Vec<u8>, width: u32, height: u32) -> Self {
         let power_pref = wgpu::PowerPreference::default();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: power_pref,
                 force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
+                compatible_surface: None,
             })
             .await
             .expect("failed to find an appropriate adapter.");
@@ -57,99 +46,34 @@ impl State {
             .await
             .expect("failed to create device.");
 
-        let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let selected_format = wgpu::TextureFormat::Bgra8Unorm;
-        // let selected_format = wgpu::TextureFormat::Bgra8UnormSrgb;
-        let swapchain_format = swapchain_capabilities
-            .formats
-            .iter()
-            .find(|d| **d == selected_format)
-            .expect("failed to select proper surface texture format.");
-
-        let surface_config = wgpu::SurfaceConfiguration {
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("render_target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            format: *swapchain_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::AutoVsync,
-            desired_maximum_frame_latency: 0,
-            alpha_mode: swapchain_capabilities.alpha_modes[0],
-            view_formats: vec![],
-        };
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        });
 
-        surface.configure(&device, &surface_config);
-
-        let surface_texture = surface.get_current_texture().unwrap();
-
-        let gui = GuiRenderer::new(&device, surface_config.format, None, 1, window);
+        let output_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("output_staging_buffer"),
+            size: texture_data.capacity() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
 
         let scale_factor: f32 = 1.0;
 
         let pathtrace_shader = device.create_shader_module(wgpu::include_wgsl!("pathtrace.wgsl"));
 
-        let last_frame_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("last_frame"),
-            size: surface_texture.texture.size(),
-            mip_level_count: surface_texture.texture.mip_level_count(),
-            sample_count: surface_texture.texture.sample_count(),
-            dimension: surface_texture.texture.dimension(),
-            format: surface_texture.texture.format(),
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let last_frame_view = last_frame_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let last_frame_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("last_frame_sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        let last_frame_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("last_frame_layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let last_frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("last_frame_bind_group"),
-            layout: &last_frame_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&last_frame_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&last_frame_sampler),
-                },
-            ],
-        });
-
         let view = View {
-            resolution: [0; 2],
+            resolution: [width, height],
             camera: Mat4::IDENTITY.to_cols_array(),
             focal_length: 1.5,
             ..View::zeroed()
@@ -295,11 +219,7 @@ impl State {
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("render_pipeline_layout"),
-            bind_group_layouts: &[
-                &last_frame_bind_group_layout,
-                &view_bind_group_layout,
-                &sky_bind_group_layout,
-            ],
+            bind_group_layouts: &[&view_bind_group_layout, &sky_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -317,7 +237,7 @@ impl State {
                 entry_point: Some("fragment"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
+                    format: target.format(),
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -342,42 +262,16 @@ impl State {
         Self {
             device,
             queue,
-            surface_config,
-            surface,
+            target,
+            output_staging_buffer,
             scale_factor,
-            gui,
             view,
             view_buffer,
             view_bind_group,
-            last_frame_texture,
-            last_frame_sampler,
-            last_frame_bind_group,
             render_pipeline,
             sky_texture,
             sky_sampler,
             sky_bind_group,
         }
-    }
-
-    pub fn resize_surface(&mut self, width: u32, height: u32) {
-        self.surface_config.width = width;
-        self.surface_config.height = height;
-        self.surface.configure(&self.device, &self.surface_config);
-
-        self.view.resolution[0] = width;
-        self.view.resolution[1] = height;
-
-        let surface_texture = self.surface.get_current_texture().unwrap();
-
-        self.last_frame_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("last_frame"),
-            size: surface_texture.texture.size(),
-            mip_level_count: surface_texture.texture.mip_level_count(),
-            sample_count: surface_texture.texture.sample_count(),
-            dimension: surface_texture.texture.dimension(),
-            format: surface_texture.texture.format(),
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: Default::default(),
-        })
     }
 }
