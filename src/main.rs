@@ -33,7 +33,7 @@ impl app::Renderer for Renderer {
         let (sdx, sdy) = input.scroll_diff();
         let (mdx, mdy) = input.mouse_diff();
         let scroll_diff = Vec2::new(sdx, sdy);
-        let mouse_diff = Vec2::new(mdx, mdy);
+        let mouse_diff = Vec2::new(mdx, -mdy);
 
         let mut total_pan = Vec2::ZERO;
         let mut total_orbit = Vec2::ZERO;
