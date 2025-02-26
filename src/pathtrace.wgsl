@@ -98,40 +98,93 @@ fn diag(a: vec4<f32>) -> mat4x4<f32> {
                 0.0, 0.0, 0.0, a.w);
 }
 
-const a: f32 = 0.99;
+const cdist: f32 = 120.0;
+const a: f32 = 0.99999;
 const m: f32 = 1.0;
-const Q: f32 = 0.0;
-const eps: f32 = 0.01;
-const timestep: f32 = 0.05;
-const steps: u32 = 4096u;
+const Q: f32 = 0.9;
+const eps: f32 = 0.005;
+const dx: vec2<f32> = vec2<f32>(0.0, eps);
 
-fn r_from_coords(x: vec4<f32>) -> f32 {
-    let p = x.yzw;
-    let rho = dot(p, p) - a * a;
-    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * p.z * p.z));
-    return sqrt(r2);
+var<private> dt: f32 = 0.03;
+
+fn sphere_intersect(ro: vec3<f32>, rd: vec3<f32>, sphere: vec4<f32>) -> f32 {
+    let oc = ro - sphere.xyz;
+    let b = dot(oc, rd);
+    let c = dot(oc, oc) - sphere.w * sphere.w;
+    let h = b * b - c;
+    if (h < 0.0) {
+        return 1e10;
+    }
+
+    return -b - sqrt(h);
 }
 
 // Kerr-Newman Metric
 fn metric(x: vec4<f32>) -> mat4x4<f32> {
     let p = x.yzw;
-    let r = r_from_coords(x);
-    let r2 = r * r;
+    let rho = dot(p, p) - a * a;
+    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * p.z * p.z));
+    let r = sqrt(r2);
     let k = vec4(1.0, (r * p.x + a * p.y) / (r2 + a * a), (r * p.y - a * p.x) / (r2 + a * a), p.z / r);
-    let f = r2 * (2.0 * m * r - Q * Q) / (r2 * r2 + a * a * p.z * p.z);
+    let f = smoothstep(cdist * 0.5, 0.0, r) * r2 * (2.0 * m * r - Q * Q) / (r2 * r2 + a * a * p.z * p.z);
     return f * mat4x4(k.x * k, k.y * k, k.z * k, k.w * k) + diag(vec4(-1.0, 1.0, 1.0, 1.0));
 }
 
-fn hamiltonian(x: vec4<f32>, p: vec4<f32>) -> f32 {
-    let g_inv = inverse(metric(x));
-    return 0.5 * dot(g_inv * p, p);
+fn lagrangian(dxdt: vec4<f32>, x: vec4<f32>) -> f32 {
+    let g = metric(x);
+    return dot(g * dxdt, dxdt);
 }
 
-fn hamiltonian_gradient(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
-    return (vec4(hamiltonian(x + vec4(eps, 0.0, 0.0, 0.0), p),
-                 hamiltonian(x + vec4(0.0, eps, 0.0, 0.0), p),
-                 hamiltonian(x + vec4(0.0, 0.0, eps, 0.0), p),
-                 hamiltonian(x + vec4(0.0, 0.0, 0.0, eps), p)) - hamiltonian(x, p)) / eps;
+fn lagrangian_metric(dxdt: vec4<f32>, g: mat4x4<f32>) -> f32 {
+    return dot(g * dxdt, dxdt);
+}
+
+fn null_momentum(v: vec3<f32>, x: vec3<f32>) -> vec4<f32> {
+    return 2.0 * metric(vec4(0.0, x)) * vec4(1.0, v);
+}
+
+fn dxdt_from_momentum(p: vec4<f32>, x: vec4<f32>) -> vec4<f32> {
+    return inverse(metric(x)) * p;
+}
+
+fn update_dt(P: vec4<f32>, x: vec4<f32>) -> bool {
+    let p = x.yzw;
+    let rho = dot(p, p) - a * a;
+    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * p.z * p.z));
+    let r = sqrt(r2);
+
+    dt = mix(0.03, 10.0, pow(max(r - 1.0, 0.0) / cdist, 1.0));
+
+    if (r < 1.0 && a <= 1.0 || length(P) > 45.0) {
+        return true;
+    }
+
+    if (length(x.yzw) > cdist) {
+        return true;
+    }
+
+    return false;
+}
+
+fn dhstep(s: mat2x4<f32>, dt: f32) -> mat2x4<f32> {
+    let p = s[0];
+    let x = s[1];
+
+    let g = metric(x);
+    let g_inv = inverse(g);
+    let dxdt = g_inv * p;
+
+    let dhdq = -(vec4(lagrangian(dxdt, x + dx.yxxx),
+                      lagrangian(dxdt, x + dx.xyxx),
+                      lagrangian(dxdt, x + dx.xxyx),
+                      lagrangian(dxdt, x + dx.xxxy)) - lagrangian_metric(dxdt, g)) / eps;
+
+    var dqp: mat2x4<f32>;
+
+    dqp[0] = -dhdq * dt;
+    dqp[1] = 2.0 * g_inv * p * dt;
+
+    return dqp;
 }
 
 @fragment
@@ -141,30 +194,43 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let pos = (2.0 * frag_coord - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
 
     let rd = normalize((view.camera * normalize(vec4(pos, view.focal_length, 1.0))).xyz);
-    let ro = view.position;
+    var ro = view.position;
 
-    let time = 0.0;
-    var x = vec4(time, ro);
-    var p = metric(x) * vec4(1.0, rd);
-    var captured = false;
+    let t0 = sphere_intersect(ro, rd, vec4(0.0, 0.0, 0.0, cdist));
+    if (t0 > 0.0 && t0 < 1e10) {
+        ro += rd * t0;
+    }
 
+    var x = vec4(0.0, ro);
+    var p = normalize(null_momentum(rd, x.yzw));
+
+    let p0 = p.x;
+
+    let steps = 128u;
     for (var i = 0u; i < steps; i++) {
-        p -= timestep * hamiltonian_gradient(x, p);
-        x += timestep * inverse(metric(x)) * p;
+        let dt1 = clamp(1.0 / length(p), 0.1, 4.0);
+        var state = mat2x4(p, x);
+        let dqp = dhstep(state, dt1 * dt);
+        state += dqp;
 
-        let r = r_from_coords(x);
-        captured = r < 1.0 + sqrt(1.0 - a * a);
-        if (captured) {
+        p = state[0];
+        x = state[1];
+
+        if (update_dt(p, x)) {
             break;
         }
     }
 
-    let dxdt = inverse(metric(x)) * p;
+    let dxdt = dxdt_from_momentum(p, x);
     let out_dir = normalize(dxdt.yzw);
-    let out_pos = x.yzw;
-    let out_time = x.x;
 
-    let col = textureSample(sky_texture, sky_sampler, out_dir) * f32(!captured);
+    let p1 = p.x;
+
+    var col = vec3(0.0);
+
+    if (length(x.yzw) > 3.0) {
+        col = textureSample(sky_texture, sky_sampler, out_dir).rgb;
+    }
 
     return vec4(col.xyz, 1.0);
 }
