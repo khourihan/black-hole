@@ -1,6 +1,6 @@
 use bytemuck::Zeroable;
 use glam::Mat4;
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, Surface};
 use winit::window::Window;
 
 use crate::{gui::GuiRenderer, types::View};
@@ -14,12 +14,13 @@ pub struct State {
     pub gui: GuiRenderer,
 
     pub render_pipeline: wgpu::RenderPipeline,
+    pub postprocess_pipeline: wgpu::RenderPipeline,
     pub view: View,
     pub view_buffer: wgpu::Buffer,
     pub view_bind_group: wgpu::BindGroup,
-    pub last_frame_texture: wgpu::Texture,
-    pub last_frame_sampler: wgpu::Sampler,
-    pub last_frame_bind_group: wgpu::BindGroup,
+    pub last_frame_textures: [wgpu::Texture; 2],
+    pub last_frame_views: [wgpu::TextureView; 2],
+    pub last_frame_bind_groups: [wgpu::BindGroup; 2],
     pub sky_texture: wgpu::Texture,
     pub sky_sampler: wgpu::Sampler,
     pub sky_bind_group: wgpu::BindGroup,
@@ -86,67 +87,74 @@ impl State {
         let scale_factor: f32 = 1.0;
 
         let pathtrace_shader = device.create_shader_module(wgpu::include_wgsl!("pathtrace.wgsl"));
+        let postprocess_shader = device.create_shader_module(wgpu::include_wgsl!("postprocess.wgsl"));
 
-        let last_frame_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("last_frame"),
-            size: surface_texture.texture.size(),
-            mip_level_count: surface_texture.texture.mip_level_count(),
-            sample_count: surface_texture.texture.sample_count(),
-            dimension: surface_texture.texture.dimension(),
-            format: surface_texture.texture.format(),
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let last_frame_textures = [
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("last_frame_texture_1"),
+                size: surface_texture.texture.size(),
+                mip_level_count: surface_texture.texture.mip_level_count(),
+                sample_count: surface_texture.texture.sample_count(),
+                dimension: surface_texture.texture.dimension(),
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[wgpu::TextureFormat::Rgba32Float],
+            }),
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("last_frame_texture_2"),
+                size: surface_texture.texture.size(),
+                mip_level_count: surface_texture.texture.mip_level_count(),
+                sample_count: surface_texture.texture.sample_count(),
+                dimension: surface_texture.texture.dimension(),
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[wgpu::TextureFormat::Rgba32Float],
+            }),
+        ];
 
-        let last_frame_view = last_frame_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let last_frame_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("last_frame_sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let last_frame_views = [
+            last_frame_textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
+            last_frame_textures[1].create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
 
         let last_frame_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("last_frame_layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
+                count: None,
+            }],
         });
 
-        let last_frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("last_frame_bind_group"),
-            layout: &last_frame_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
+        let last_frame_bind_groups = [
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("last_frame_bind_group_1"),
+                layout: &last_frame_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&last_frame_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&last_frame_sampler),
-                },
-            ],
-        });
+                    resource: wgpu::BindingResource::TextureView(&last_frame_views[0]),
+                }],
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("last_frame_bind_group_2"),
+                layout: &last_frame_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&last_frame_views[1]),
+                }],
+            }),
+        ];
 
         let view = View {
             resolution: [0; 2],
@@ -317,6 +325,48 @@ impl State {
                 entry_point: Some("fragment"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba32Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                conservative: false,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
+        let postprocess_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("postprocess_pipeline_layout"),
+            bind_group_layouts: &[&last_frame_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let postprocess_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("postprocess_pipeline"),
+            layout: Some(&postprocess_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &postprocess_shader,
+                entry_point: Some("vertex"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &postprocess_shader,
+                entry_point: Some("fragment"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
                     format: surface_config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
@@ -349,10 +399,11 @@ impl State {
             view,
             view_buffer,
             view_bind_group,
-            last_frame_texture,
-            last_frame_sampler,
-            last_frame_bind_group,
+            last_frame_views,
+            last_frame_textures,
+            last_frame_bind_groups,
             render_pipeline,
+            postprocess_pipeline,
             sky_texture,
             sky_sampler,
             sky_bind_group,
@@ -369,15 +420,33 @@ impl State {
 
         let surface_texture = self.surface.get_current_texture().unwrap();
 
-        self.last_frame_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("last_frame"),
-            size: surface_texture.texture.size(),
-            mip_level_count: surface_texture.texture.mip_level_count(),
-            sample_count: surface_texture.texture.sample_count(),
-            dimension: surface_texture.texture.dimension(),
-            format: surface_texture.texture.format(),
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: Default::default(),
-        })
+        self.last_frame_textures = [
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("last_frame_texture_1"),
+                size: surface_texture.texture.size(),
+                mip_level_count: surface_texture.texture.mip_level_count(),
+                sample_count: surface_texture.texture.sample_count(),
+                dimension: surface_texture.texture.dimension(),
+                format: surface_texture.texture.format(),
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: Default::default(),
+            }),
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("last_frame_texture_2"),
+                size: surface_texture.texture.size(),
+                mip_level_count: surface_texture.texture.mip_level_count(),
+                sample_count: surface_texture.texture.sample_count(),
+                dimension: surface_texture.texture.dimension(),
+                format: surface_texture.texture.format(),
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: Default::default(),
+            }),
+        ]
     }
 }

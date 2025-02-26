@@ -12,6 +12,7 @@ pub struct RenderContext {
     camera: Mat4,
     position: Vec3,
     pub focal_length: f32,
+    pub reset_frame_count: bool,
 }
 
 impl RenderContext {
@@ -20,6 +21,7 @@ impl RenderContext {
             camera: Mat4::IDENTITY,
             position: Vec3::ZERO,
             focal_length: 1.5,
+            reset_frame_count: true,
         }
     }
 
@@ -45,6 +47,7 @@ pub struct App<R: Renderer> {
     window: Option<Arc<Window>>,
     input: InputManager,
     render_ctx: RenderContext,
+    frame_count: usize,
     renderer: R,
 }
 
@@ -60,6 +63,7 @@ impl<R: Renderer> App<R> {
             window: None,
             input: InputManager::new(),
             render_ctx: RenderContext::new(),
+            frame_count: 0,
             renderer,
         }
     }
@@ -123,9 +127,39 @@ impl<R: Renderer> App<R> {
             |ctx| self.renderer.gui(ctx),
         );
 
+        let current_frame_view = &state.last_frame_views[self.frame_count % 2];
+
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: current_frame_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            pass.set_pipeline(&state.render_pipeline);
+            pass.set_bind_group(0, &state.last_frame_bind_groups[(self.frame_count + 1) % 2], &[]);
+            pass.set_bind_group(1, &state.view_bind_group, &[]);
+            pass.set_bind_group(2, &state.sky_bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("postprocess_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &surface_view,
                     resolve_target: None,
@@ -144,26 +178,26 @@ impl<R: Renderer> App<R> {
                 occlusion_query_set: None,
             });
 
-            pass.set_pipeline(&state.render_pipeline);
-            pass.set_bind_group(0, &state.last_frame_bind_group, &[]);
-            pass.set_bind_group(1, &state.view_bind_group, &[]);
-            pass.set_bind_group(2, &state.sky_bind_group, &[]);
+            pass.set_pipeline(&state.postprocess_pipeline);
+            pass.set_bind_group(0, &state.last_frame_bind_groups[self.frame_count % 2], &[]);
             pass.draw(0..3, 0..1);
 
-            state
-                .gui
-                .renderer
-                .render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
+            // state
+            //     .gui
+            //     .renderer
+            //     .render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
         }
 
         encoder.copy_texture_to_texture(
-            surface_texture.texture.as_image_copy(),
-            state.last_frame_texture.as_image_copy(),
+            state.last_frame_textures[self.frame_count % 2].as_image_copy(),
+            state.last_frame_textures[(self.frame_count + 1) % 2].as_image_copy(),
             surface_texture.texture.size(),
         );
 
         state.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
+
+        self.frame_count += 1;
 
         Ok(())
     }
@@ -209,11 +243,16 @@ impl<R: Renderer> ApplicationHandler for App<R> {
                 self.renderer.input(&self.input);
                 self.renderer.render(&mut self.render_ctx);
 
+                if self.render_ctx.reset_frame_count {
+                    self.frame_count = 0;
+                }
+
                 let state = self.state.as_mut().unwrap();
 
                 state.view.camera = self.render_ctx.camera.to_cols_array();
                 state.view.position = self.render_ctx.position.to_array();
                 state.view.focal_length = self.render_ctx.focal_length;
+                state.view.frame_count = self.frame_count as u32;
 
                 state
                     .queue

@@ -24,6 +24,7 @@ struct Renderer {
     focal_length: f32,
     info_window_open: bool,
     is_new: bool,
+    is_changed: bool,
 }
 
 impl app::Renderer for Renderer {
@@ -85,6 +86,10 @@ impl app::Renderer for Renderer {
         if any || self.is_new {
             self.rotation = Quat::from_euler(EulerRot::YXZ, self.yaw, self.pitch, 0.0);
             self.position = self.center + (self.rotation * Vec3::NEG_Z) * self.radius;
+
+            self.is_changed = true
+        } else {
+            self.is_changed = false;
         }
 
         self.is_new = false;
@@ -93,6 +98,7 @@ impl app::Renderer for Renderer {
     fn render(&mut self, ctx: &mut app::RenderContext) {
         ctx.set_camera(self.position, self.rotation);
         ctx.focal_length = self.focal_length;
+        ctx.reset_frame_count = self.is_changed;
     }
 
     fn gui(&mut self, ctx: &egui::Context) {
@@ -116,6 +122,7 @@ impl Default for Renderer {
             focal_length: 1.5,
             info_window_open: true,
             is_new: true,
+            is_changed: false,
         }
     }
 }

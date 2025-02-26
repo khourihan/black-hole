@@ -12,13 +12,12 @@ struct View {
     position: vec3<f32>,
     focal_length: f32,
     resolution: vec2<u32>,
-    _padding: vec2<f32>,
+    frame_count: u32,
+    _padding: f32,
 };
 
 @group(0) @binding(0)
 var last_frame: texture_2d<f32>;
-@group(0) @binding(1)
-var last_frame_sampler: sampler;
 
 @group(1) @binding(0)
 var<uniform> view: View;
@@ -37,6 +36,32 @@ fn vertex(in: VertexInput) -> VertexOutput {
     let position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
 
     return VertexOutput(position, uv);
+}
+
+const PI: f32 = 3.1415927;
+const TAU: f32 = 6.28318531;
+
+var<private> state: u32 = 0u;
+
+fn triple32(v: u32) -> u32 {
+    var x = v;
+    x ^= x >> 17u;
+    x *= 0xED5AD4BBu;
+    x ^= x >> 11u;
+    x *= 0xAC4C1B51u;
+    x ^= x >> 15u;
+    x *= 0x31848BABu;
+    x ^= x >> 14u;
+    return x;
+}
+
+fn rand() -> f32 {
+    state = triple32(state);
+    return f32(state) / f32(0xFFFFFFFFu);
+}
+
+fn rand2() -> vec2<f32> {
+    return vec2<f32>(rand(), rand());
 }
 
 fn inverse(m: mat4x4<f32>) -> mat4x4<f32> {
@@ -93,9 +118,9 @@ fn inverse(m: mat4x4<f32>) -> mat4x4<f32> {
 
 fn diag(a: vec4<f32>) -> mat4x4<f32> {
     return mat4x4(a.x, 0.0, 0.0, 0.0,
-                0.0, a.y, 0.0, 0.0,
-                0.0, 0.0, a.z, 0.0,
-                0.0, 0.0, 0.0, a.w);
+                  0.0, a.y, 0.0, 0.0,
+                  0.0, 0.0, a.z, 0.0,
+                  0.0, 0.0, 0.0, a.w);
 }
 
 const cdist: f32 = 120.0;
@@ -231,5 +256,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         col = textureSample(sky_texture, sky_sampler, out_dir).rgb;
     }
 
-    return vec4(col.xyz, 1.0);
+    var old_col = vec4(0.0);
+
+    if (view.frame_count != 0u) {
+        let load_coord = vec2(in.uv.x, 1.0 - in.uv.y) * vec2<f32>(view.resolution.xy);
+        old_col = textureLoad(last_frame, vec2<u32>(load_coord), 0);
+    }
+
+    return vec4(col, 1.0) + old_col;
 }
