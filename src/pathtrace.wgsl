@@ -41,7 +41,13 @@ fn vertex(in: VertexInput) -> VertexOutput {
 const PI: f32 = 3.1415927;
 const TAU: f32 = 6.28318531;
 
-var<private> state: u32 = 0u;
+fn rotate2(v: vec2<f32>, t: f32) -> vec2<f32> {
+    let s = sin(t);
+    let c = cos(t);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+
+var<private> rng_state: u32 = 0u;
 
 fn triple32(v: u32) -> u32 {
     var x = v;
@@ -56,12 +62,93 @@ fn triple32(v: u32) -> u32 {
 }
 
 fn rand() -> f32 {
-    state = triple32(state);
-    return f32(state) / f32(0xFFFFFFFFu);
+    rng_state = triple32(rng_state);
+    return f32(rng_state) / f32(0xFFFFFFFFu);
 }
 
 fn rand2() -> vec2<f32> {
     return vec2<f32>(rand(), rand());
+}
+
+fn udir3() -> vec3<f32> {
+    let z = rand2();
+    let r = vec2(TAU * z.x, acos(2.0 * z.y - 1.0));
+    let s = sin(r);
+    let c = cos(r);
+    return vec3(c.x * s.y, s.x * s.y, c.y);
+}
+
+fn hash44(p4: vec4<f32>) -> vec4<f32> {
+    var p = fract(p4 * vec4(0.1031, 0.1030, 0.0973, 0.1099));
+    p += dot(p, p.wzxy + 33.33);
+    return fract((p.xxyz + p.yzzw) * p.zywx);
+}
+
+fn noise(p: vec3<f32>, octave: u32) -> f32 {
+    let f = fract(p);
+    let i = floor(p);
+
+    let s = smoothstep(vec3(0.0), vec3(1.0), f);
+
+    let t0 = hash44(vec4(i + vec3(0.0, 0.0, 0.0), f32(octave))).x;
+    let t1 = hash44(vec4(i + vec3(1.0, 0.0, 0.0), f32(octave))).x;
+    let t2 = hash44(vec4(i + vec3(0.0, 1.0, 0.0), f32(octave))).x;
+    let t3 = hash44(vec4(i + vec3(1.0, 1.0, 0.0), f32(octave))).x;
+    let t4 = hash44(vec4(i + vec3(0.0, 0.0, 1.0), f32(octave))).x;
+    let t5 = hash44(vec4(i + vec3(1.0, 0.0, 1.0), f32(octave))).x;
+    let t6 = hash44(vec4(i + vec3(0.0, 1.0, 1.0), f32(octave))).x;
+    let t7 = hash44(vec4(i + vec3(1.0, 1.0, 1.0), f32(octave))).x;
+
+    return mix(
+        mix(mix(t0, t1, s.x), mix(t2, t3, s.x), s.y),
+        mix(mix(t4, t5, s.x), mix(t6, t7, s.x), f.y),
+        s.z
+    );
+}
+
+fn fbm(p: vec3<f32>, iter: u32) -> f32 {
+    var v = 0.0;
+    var acc = 0.0;
+    var att = 0.5;
+    var scale = 1.0;
+
+    for (var i = 0u; i < iter; i++) {
+        v += att * noise(scale * p, iter);
+        acc += att;
+        att *= 0.5;
+        scale *= 2.5;
+    }
+
+    var res = v;
+
+    if (acc != 0.0) {
+        res = v / acc;
+    }
+
+    return res;
+}
+
+const XYZ2sRGB: mat3x3<f32> = mat3x3<f32>(
+    3.240,  -1.537, -0.499,
+    -0.969, 1.876,   0.042,
+    0.056,  -0.204,  1.057
+);
+
+fn xyz2rgb(xyz: vec3<f32>) -> vec3<f32> {
+    return xyz * XYZ2sRGB;
+}
+
+fn rgb2xyz(rgb: vec3<f32>) -> vec3<f32> {
+    return rgb * transpose(XYZ2sRGB);
+}
+
+// Computes the XYZ color of an ideal black-body radiator, given its temperature in Kelvin.
+fn blackbody(t: f32) -> vec3<f32> {
+    let u = (0.860117757 + 1.54118254E-4 * t + 1.28641212E-7 * t * t) / (1.0 + 8.42420235E-4 * t + 7.08145163E-7 * t * t);
+    let v = (0.317398726 + 4.22806245E-5 * t + 4.20481691E-8 * t * t) / (1.0 - 2.89741816E-5 * t + 1.61456053E-7 * t * t);
+
+    let xyy = vec2(3.0 * u, 2.0 * v) / (2.0 * u - 8.0 * v + 4.0);
+    return vec3(xyy.x / xyy.y, 1.0, (1.0 - xyy.x - xyy.y) / xyy.y);
 }
 
 fn inverse(m: mat4x4<f32>) -> mat4x4<f32> {
@@ -124,13 +211,24 @@ fn diag(a: vec4<f32>) -> mat4x4<f32> {
 }
 
 const cdist: f32 = 120.0;
-const a: f32 = 0.99999;
+const a: f32 = 0.3;
 const m: f32 = 1.0;
-const Q: f32 = 0.9;
+const Q: f32 = 0.2;
 const eps: f32 = 0.005;
 const dx: vec2<f32> = vec2<f32>(0.0, eps);
+const max_bounces: u32 = 4;
 
-var<private> dt: f32 = 0.03;
+const disc_radius: f32 = 10.0;
+const disc_height: f32 = 0.8;
+const disc_falloff: vec2<f32> = vec2<f32>(0.1, 0.5); // radial, vertical
+const disc_emission_falloff: vec2<f32> = vec2<f32>(0.06, 0.6); // radial, vertical
+
+const dt_min: f32 = 0.03;
+const dt_max: f32 = 1.0;
+
+const steps: u32 = 256u;
+
+var<private> dt: f32 = dt_min;
 
 fn sphere_intersect(ro: vec3<f32>, rd: vec3<f32>, sphere: vec4<f32>) -> f32 {
     let oc = ro - sphere.xyz;
@@ -144,6 +242,42 @@ fn sphere_intersect(ro: vec3<f32>, rd: vec3<f32>, sphere: vec4<f32>) -> f32 {
     return -b - sqrt(h);
 }
 
+struct SampleVolumeOut {
+    c: vec3<f32>,
+    e: vec3<f32>,
+    v: f32,
+};
+
+fn sample_volume(p: vec3<f32>) -> SampleVolumeOut {
+    var out: SampleVolumeOut;
+
+    out.c = vec3(0.3, 0.2, 0.1);
+    out.e = vec3(0.0);
+    out.v = 0.0;
+
+    // Reject if not hit disc
+    if (dot(p.xy, p.xy) > disc_radius * disc_radius || p.z * p.z > disc_height * disc_height) {
+        return out;
+    };
+
+    let n0 = fbm(20.0 * vec3(rotate2(p.xy, (8.0 * p.z) + (4.0 * length(p.xy))), p.z).xyz, 8u);
+
+    let d_falloff = length(disc_falloff.xxy * p);
+    let e_falloff = length(disc_emission_falloff.xxy * p);
+
+    // Sample the color temperature of the accretion disc (with some random jitter) and normalize
+    let t = rand();
+    out.e = xyz2rgb(blackbody((4000.0 * t * t) + 2000.0));
+    out.e = clamp(out.e / max(max(max(out.e.r, out.e.g), out.e.b), 0.01), vec3(0.0), vec3(1.0));
+
+    // Account for density and emission falloff near edges of disc
+    out.e *= 128.0 * max(n0 - e_falloff, 0.0) / (dot(0.5 * p, 0.5 * p) + 0.05);
+    out.v = 128.0 * max(n0 - d_falloff, 0.0);
+
+    return out;
+}
+
+// Kerr-Newman metric in Kerr-Schild coordinates for spinning charged black hole rotating around the Z-axis.
 fn metric(x: vec4<f32>) -> mat4x4<f32> {
     let p = x.yzw;
     let rho = dot(p, p) - a * a;
@@ -171,15 +305,15 @@ fn dxdt_from_momentum(p: vec4<f32>, x: vec4<f32>) -> vec4<f32> {
     return inverse(metric(x)) * p;
 }
 
-fn update_dt(P: vec4<f32>, x: vec4<f32>) -> bool {
-    let p = x.yzw;
-    let rho = dot(p, p) - a * a;
-    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * p.z * p.z));
+fn update_dt(p: vec4<f32>, x: vec4<f32>) -> bool {
+    let pos = x.yzw;
+    let rho = dot(pos, pos) - a * a;
+    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * pos.z * pos.z));
     let r = sqrt(r2);
 
-    dt = mix(0.03, 10.0, pow(max(r - 1.0, 0.0) / cdist, 1.0));
+    dt = mix(dt_min, dt_max, pow(max(r - 1.0, 0.0) / cdist, 1.0));
 
-    if (r < 1.0 && a <= 1.0 || length(P) > 45.0) {
+    if (r < 1.0 && a <= 1.0 || length(p) > 45.0) {
         return true;
     }
 
@@ -214,8 +348,8 @@ fn dhstep(s: mat2x4<f32>, dt: f32) -> mat2x4<f32> {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let frag_coord = in.uv * vec2<f32>(view.resolution.xy);
-    // TODO: jitter frag coord
-    let pos = (2.0 * frag_coord - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
+    rng_state = view.frame_count * view.resolution.x * view.resolution.y + u32(frag_coord.y) * view.resolution.x + u32(frag_coord.x);
+    let pos = (2.0 * (frag_coord + rand2() - 0.5) - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
 
     let rd = normalize((view.camera * normalize(vec4(pos, view.focal_length, 1.0))).xyz);
     var ro = view.position;
@@ -230,8 +364,32 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let p0 = p.x;
 
-    let steps = 128u;
+    var discard_sample = false;
+    var bounces = 0u;
+
+    var r = vec3(0.0);
+    var att = vec3(1.0);
+
     for (var i = 0u; i < steps; i++) {
+        if (bounces > max_bounces) {
+            discard_sample = true;
+            break;
+        }
+
+        let d = sample_volume(x.yzw);
+        r += att * d.e * dt;
+
+        if (d.v > 0.0) {
+            let absorb = exp(-1.0 * dt * d.v);
+
+            if (absorb < rand()) {
+                let v = length(p.yzw) * reflect(normalize(p.yzw), udir3());
+                p = vec4(p.x, v.x, v.y, v.z);
+                att *= d.c;
+                bounces += 1u;
+            }
+        }
+
         let dt1 = clamp(1.0 / length(p), 0.1, 4.0);
         var state = mat2x4(p, x);
         let dqp = dhstep(state, dt1 * dt);
@@ -252,8 +410,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var col = vec3(0.0);
 
-    if (length(x.yzw) > 3.0) {
-        col = textureSample(sky_texture, sky_sampler, out_dir).rgb;
+    if (length(x.yzw) > 3.0 && !discard_sample) {
+        // r += att * textureSample(sky_texture, sky_sampler, out_dir).rgb;
+        col = r;
     }
 
     var old_col = vec4(0.0);
@@ -263,5 +422,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         old_col = textureLoad(last_frame, vec2<u32>(load_coord), 0);
     }
 
-    return vec4(col, 1.0) + old_col;
+    if (discard_sample) {
+        return old_col;
+    } else {
+        return vec4(col, 1.0) + old_col;
+    }
 }

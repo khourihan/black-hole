@@ -48,6 +48,7 @@ pub struct App<R: Renderer> {
     input: InputManager,
     render_ctx: RenderContext,
     frame_count: usize,
+    startup_frame_count: usize,
     renderer: R,
 }
 
@@ -64,6 +65,7 @@ impl<R: Renderer> App<R> {
             input: InputManager::new(),
             render_ctx: RenderContext::new(),
             frame_count: 0,
+            startup_frame_count: 0,
             renderer,
         }
     }
@@ -97,6 +99,11 @@ impl<R: Renderer> App<R> {
                     return Ok(());
                 }
             }
+        }
+
+        if self.startup_frame_count < 30 {
+            self.startup_frame_count += 1;
+            return Ok(());
         }
 
         let state = self.state.as_mut().unwrap();
