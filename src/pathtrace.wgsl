@@ -222,6 +222,9 @@ const disc_radius: f32 = 10.0;
 const disc_height: f32 = 0.8;
 const disc_falloff: vec2<f32> = vec2<f32>(0.1, 0.5); // radial, vertical
 const disc_emission_falloff: vec2<f32> = vec2<f32>(0.06, 0.6); // radial, vertical
+const disc_temperature_scale: f32 = 4000.0;
+const disc_temperature_offset: f32 = 2000.0;
+const disc_radial_scale: f32 = 8.0;
 
 const dt_min: f32 = 0.03;
 const dt_max: f32 = 1.0;
@@ -248,7 +251,7 @@ struct SampleVolumeOut {
     v: f32,
 };
 
-fn sample_volume(p: vec3<f32>) -> SampleVolumeOut {
+fn sample_volume(p: vec3<f32>, redshift: f32) -> SampleVolumeOut {
     var out: SampleVolumeOut;
 
     out.c = vec3(0.3, 0.2, 0.1);
@@ -260,14 +263,14 @@ fn sample_volume(p: vec3<f32>) -> SampleVolumeOut {
         return out;
     };
 
-    let n0 = fbm(20.0 * vec3(rotate2(p.xy, (8.0 * p.z) + (4.0 * length(p.xy))), p.z).xyz, 8u);
+    let n0 = fbm(disc_radial_scale * vec3(rotate2(p.xy, (8.0 * p.z) + (disc_radial_scale * length(p.xy))), p.z).xyz, 8u);
 
     let d_falloff = length(disc_falloff.xxy * p);
     let e_falloff = length(disc_emission_falloff.xxy * p);
 
     // Sample the color temperature of the accretion disc (with some random jitter) and normalize
     let t = rand();
-    out.e = xyz2rgb(blackbody((4000.0 * t * t) + 2000.0));
+    out.e = xyz2rgb(blackbody((disc_temperature_scale * t * t) + disc_temperature_offset));
     out.e = clamp(out.e / max(max(max(out.e.r, out.e.g), out.e.b), 0.01), vec3(0.0), vec3(1.0));
 
     // Account for density and emission falloff near edges of disc
@@ -376,7 +379,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             break;
         }
 
-        let d = sample_volume(x.yzw);
+        let d = sample_volume(x.yzw, p0 / p.x);
         r += att * d.e * dt;
 
         if (d.v > 0.0) {
