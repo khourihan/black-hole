@@ -439,6 +439,17 @@ fn render_frame(frag_coord: vec2<f32>, render_skybox: bool, render_disc: bool) -
     }
 }
 
+const exposure: f32 = 1.0;
+
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    return clamp(mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, step(c, vec3(0.0031308))), vec3(0.0), vec3(1.0));
+}
+
+fn tonemap(color: vec3<f32>) -> vec3<f32> {
+    var c = smoothstep(vec3(0.0), vec3(1.0), 1.0 - exp(-color * exposure));
+    return c;
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let render_skybox = (view.flags & 1u) != 0u;
@@ -452,5 +463,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         col += render_frame(frag_coord, render_skybox, render_disc);
     }
 
-    return vec4(col.rgb / col.a, 1.0);
+    return vec4(linear_to_srgb(tonemap(col.rgb / col.a)), 1.0);
 }
