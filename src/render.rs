@@ -32,6 +32,26 @@ impl Renderer {
             .write_buffer(&self.state.view_buffer, 0, bytemuck::cast_slice(&[self.state.view]));
     }
 
+    pub fn set_render_skybox(&mut self, v: bool) {
+        if v {
+            self.state.view.flags |= 1;
+        } else {
+            self.state.view.flags &= !1;
+        }
+    }
+
+    pub fn set_render_disc(&mut self, v: bool) {
+        if v {
+            self.state.view.flags |= 0b10;
+        } else {
+            self.state.view.flags &= !0b10;
+        }
+    }
+
+    pub fn set_frames(&mut self, frames: u32) {
+        self.state.view.frames = frames;
+    }
+
     pub fn render(&mut self) {
         let target_view = self.state.target.create_view(&wgpu::TextureViewDescriptor::default());
 

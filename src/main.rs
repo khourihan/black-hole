@@ -8,10 +8,13 @@ mod types;
 fn main() {
     let (width, height) = (1920, 1080);
 
-    let eye = Vec3::new(0.0, 0.0, -30.0);
+    let eye = Vec3::new(0.0, 0.0, 30.0);
     let target = Vec3::ZERO;
 
     let mut renderer = Renderer::new(width, height);
+    renderer.set_render_skybox(true);
+    renderer.set_render_disc(true);
+    renderer.set_frames(16);
     renderer.set_view(Mat4::look_at_lh(Vec3::ZERO, target - eye, Vec3::Y), eye, 1.5);
     renderer.render();
 
