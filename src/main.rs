@@ -31,6 +31,11 @@ impl app::Renderer for Renderer {
     fn input(&mut self, input: &InputManager) {
         self.info_window_open ^= input.key_pressed(KeyCode::KeyT);
 
+        if input.key_pressed(KeyCode::KeyP) {
+            println!("{}", self.position);
+            println!("{}", glam::Mat4::from_quat(self.rotation));
+        }
+
         let (sdx, sdy) = input.scroll_diff();
         let (mdx, mdy) = input.mouse_diff();
         let scroll_diff = Vec2::new(sdx, sdy);
