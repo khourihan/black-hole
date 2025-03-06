@@ -11,6 +11,7 @@ use crate::{input::InputManager, state::State};
 pub struct RenderContext {
     camera: Mat4,
     position: Vec3,
+    flags: u32,
     pub focal_length: f32,
     pub reset_frame_count: bool,
 }
@@ -22,12 +23,29 @@ impl RenderContext {
             position: Vec3::ZERO,
             focal_length: 1.5,
             reset_frame_count: true,
+            flags: u32::MAX,
         }
     }
 
     pub fn set_camera(&mut self, position: Vec3, rotation: Quat) {
         self.position = position;
         self.camera = Mat4::from_quat(rotation);
+    }
+
+    pub fn set_render_skybox(&mut self) {
+        self.flags |= 1;
+    }
+
+    pub fn set_render_disc(&mut self) {
+        self.flags |= 0b10;
+    }
+
+    pub fn unset_render_skybox(&mut self) {
+        self.flags &= !1;
+    }
+
+    pub fn unset_render_disc(&mut self) {
+        self.flags &= !0b10;
     }
 }
 
@@ -259,6 +277,7 @@ impl<R: Renderer> ApplicationHandler for App<R> {
                 state.view.camera = self.render_ctx.camera.to_cols_array();
                 state.view.position = self.render_ctx.position.to_array();
                 state.view.focal_length = self.render_ctx.focal_length;
+                state.view.flags = self.render_ctx.flags;
                 state.view.frame_count = self.frame_count as u32;
 
                 state

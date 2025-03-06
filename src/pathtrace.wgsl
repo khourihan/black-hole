@@ -13,7 +13,7 @@ struct View {
     focal_length: f32,
     resolution: vec2<u32>,
     frame_count: u32,
-    _padding: f32,
+    flags: u32,
 };
 
 @group(0) @binding(0)
@@ -210,26 +210,42 @@ fn diag(a: vec4<f32>) -> mat4x4<f32> {
                   0.0, 0.0, 0.0, a.w);
 }
 
+// Radius of the sphere of influence in which gravitational lensing occurs
 const cdist: f32 = 120.0;
+// Black hole spin factor (J/M^2)
 const a: f32 = 0.3;
+// Black hole mass
 const m: f32 = 1.0;
+// Black hole charge
 const Q: f32 = 0.2;
+// Epsilon when approximating gradients
 const eps: f32 = 0.005;
 const dx: vec2<f32> = vec2<f32>(0.0, eps);
+// Max ray bounces (only applies to volumetric accretion disc)
 const max_bounces: u32 = 4;
 
+// Radius of the accretion disc
 const disc_radius: f32 = 10.0;
+// Height of the accretion disc
 const disc_height: f32 = 0.8;
-const disc_falloff: vec2<f32> = vec2<f32>(0.1, 0.5); // radial, vertical
-const disc_emission_falloff: vec2<f32> = vec2<f32>(0.06, 0.6); // radial, vertical
+// Falloff of the volumetric accretion disc (radial, vertical)
+const disc_falloff: vec2<f32> = vec2<f32>(0.1, 0.5);
+// Falloff of the emission of the volumetric accretion disc (radial, vertical)
+const disc_emission_falloff: vec2<f32> = vec2<f32>(0.06, 0.6);
+// Disc temperature variance
 const disc_temperature_scale: f32 = 4000.0;
+// Disc temperature base value
 const disc_temperature_offset: f32 = 2000.0;
+// Scale of noise on the accretion disc
 const disc_radial_scale: f32 = 8.0;
 
+/// Minimum timestep for spacetime pathtracer
 const dt_min: f32 = 0.03;
-const dt_max: f32 = 1.0;
+// Maximum timestep for spacetime pathtracer
+const dt_max: f32 = 1.0; // can be 10.0 for no accretion disc
 
-const steps: u32 = 256u;
+// Number of timesteps for spacetime pathtracer
+const steps: u32 = 256u; // can be 128u for no accretion disc
 
 var<private> dt: f32 = dt_min;
 
@@ -350,6 +366,9 @@ fn dhstep(s: mat2x4<f32>, dt: f32) -> mat2x4<f32> {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let render_skybox = (view.flags & 1u) != 0u;
+    let render_disc = ((view.flags >> 1u) & 1u) != 0u;
+
     let frag_coord = in.uv * vec2<f32>(view.resolution.xy);
     rng_state = view.frame_count * view.resolution.x * view.resolution.y + u32(frag_coord.y) * view.resolution.x + u32(frag_coord.x);
     let pos = (2.0 * (frag_coord + rand2() - 0.5) - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
@@ -374,22 +393,24 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var att = vec3(1.0);
 
     for (var i = 0u; i < steps; i++) {
-        if (bounces > max_bounces) {
-            discard_sample = true;
-            break;
-        }
+        if (render_disc) {
+            if (bounces > max_bounces) {
+                discard_sample = true;
+                break;
+            }
 
-        let d = sample_volume(x.yzw, p0 / p.x);
-        r += att * d.e * dt;
+            let d = sample_volume(x.yzw, p0 / p.x);
+            r += att * d.e * dt;
 
-        if (d.v > 0.0) {
-            let absorb = exp(-1.0 * dt * d.v);
+            if (d.v > 0.0) {
+                let absorb = exp(-1.0 * dt * d.v);
 
-            if (absorb < rand()) {
-                let v = length(p.yzw) * reflect(normalize(p.yzw), udir3());
-                p = vec4(p.x, v.x, v.y, v.z);
-                att *= d.c;
-                bounces += 1u;
+                if (absorb < rand()) {
+                    let v = length(p.yzw) * reflect(normalize(p.yzw), udir3());
+                    p = vec4(p.x, v.x, v.y, v.z);
+                    att *= d.c;
+                    bounces += 1u;
+                }
             }
         }
 
@@ -414,7 +435,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var col = vec3(0.0);
 
     if (length(x.yzw) > 3.0 && !discard_sample) {
-        // r += att * textureSample(sky_texture, sky_sampler, out_dir).rgb;
+        if (render_skybox) {
+            r += att * textureSample(sky_texture, sky_sampler, out_dir).rgb;
+        }
         col = r;
     }
 

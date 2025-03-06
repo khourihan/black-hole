@@ -97,6 +97,8 @@ impl app::Renderer for Renderer {
 
     fn render(&mut self, ctx: &mut app::RenderContext) {
         ctx.set_camera(self.position, self.rotation);
+        ctx.set_render_skybox();
+        ctx.set_render_disc();
         ctx.focal_length = self.focal_length;
         ctx.reset_frame_count = self.is_changed;
     }

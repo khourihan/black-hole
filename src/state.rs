@@ -1,6 +1,6 @@
 use bytemuck::Zeroable;
 use glam::Mat4;
-use wgpu::{util::DeviceExt, Surface};
+use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::{gui::GuiRenderer, types::View};
