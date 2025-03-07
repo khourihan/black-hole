@@ -35,8 +35,9 @@ fn vertex(in: VertexInput) -> VertexOutput {
     return VertexOutput(position, uv);
 }
 
-const PI: f32 = 3.1415927;
-const TAU: f32 = 6.28318531;
+alias float = f32;
+const PI: float = 3.1415927;
+const TAU: float = 6.28318531;
 
 fn rotate2(v: vec2<f32>, t: f32) -> vec2<f32> {
     let s = sin(t);
@@ -239,10 +240,10 @@ const disc_radial_scale: f32 = 8.0;
 /// Minimum timestep for spacetime pathtracer
 const dt_min: f32 = 0.03;
 // Maximum timestep for spacetime pathtracer
-const dt_max: f32 = 1.0; // can be 10.0 for no accretion disc
+const dt_max: f32 = 0.3; // can be 10.0 for no accretion disc
 
 // Number of timesteps for spacetime pathtracer
-const steps: u32 = 256u; // can be 128u for no accretion disc
+const steps: u32 = 4096u; // can be 128u for no accretion disc
 
 var<private> dt: f32 = dt_min;
 

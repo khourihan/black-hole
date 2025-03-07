@@ -1,3 +1,5 @@
+use std::mem;
+
 use glam::{Mat4, Vec3};
 
 use crate::state::State;
@@ -12,7 +14,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(width: u32, height: u32) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let target = Vec::<u8>::with_capacity((width * height * 4) as usize);
+        let target = Vec::<u8>::with_capacity((width * height * 4) as usize * mem::size_of::<f32>());
 
         Self {
             width,
@@ -93,7 +95,7 @@ impl Renderer {
                 buffer: &self.state.output_staging_buffer,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(self.width * 4),
+                    bytes_per_row: Some(self.width * 4 * mem::size_of::<f32>() as u32),
                     rows_per_image: Some(self.height),
                 },
             },
