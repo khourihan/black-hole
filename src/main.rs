@@ -5,6 +5,39 @@ mod render;
 mod state;
 mod types;
 
+fn step(edge: Vec3, x: Vec3) -> Vec3 {
+    Vec3::new(
+        if x.x < edge.x { 0.0 } else { 1.0 },
+        if x.y < edge.y { 0.0 } else { 1.0 },
+        if x.z < edge.z { 0.0 } else { 1.0 },
+    )
+}
+
+fn smoothstep(edge0: Vec3, edge1: Vec3, mut x: Vec3) -> Vec3 {
+    x = Vec3::clamp((x - edge0) / (edge1 - edge0), Vec3::ZERO, Vec3::ONE);
+    x * x * (3.0 - 2.0 * x)
+}
+
+fn mix(a: Vec3, b: Vec3, t: Vec3) -> Vec3 {
+    a * (1.0 - t) + b * t
+}
+
+fn linear_to_srgb(c: Vec3) -> Vec3 {
+    Vec3::clamp(
+        mix(
+            1.055 * Vec3::powf(c, 1.0 / 2.4) - Vec3::splat(0.055),
+            c * 12.92,
+            step(c, Vec3::splat(0.0031308)),
+        ),
+        Vec3::ZERO,
+        Vec3::ONE,
+    )
+}
+
+fn tonemap(color: Vec3) -> Vec3 {
+    smoothstep(Vec3::ZERO, Vec3::ONE, 1.0 - Vec3::exp(-color * 1.0))
+}
+
 fn main() {
     let (width, height) = (1920, 1080);
 
@@ -40,18 +73,21 @@ fn main() {
         })
         .collect();
 
-    let mut image: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = image::ImageBuffer::new(width, height);
+    let mut image: image::ImageBuffer<image::Rgb<u8>, Vec<u8>> = image::ImageBuffer::new(width, height);
 
     for (i, pixel) in data.chunks(4).enumerate() {
         let x = i as u32 % width;
         let y = i as u32 / width;
 
-        let px_unorm: Vec<u8> = pixel.iter().map(|&c| (c.clamp(0.0, 1.0) * 255.0) as u8).collect();
-        image.put_pixel(
-            x,
-            (height - 1) - y,
-            image::Rgba(px_unorm.as_slice().try_into().unwrap()),
-        );
+        let mut col = Vec3::new(pixel[0], pixel[1], pixel[2]);
+        col.x /= pixel[3];
+        col.y /= pixel[3];
+        col.z /= pixel[3];
+
+        col = linear_to_srgb(tonemap(col));
+
+        let col_unorm = (col.clamp(Vec3::ZERO, Vec3::ONE) * 255.0).as_u8vec3();
+        image.put_pixel(x, (height - 1) - y, image::Rgb(col_unorm.to_array()));
     }
 
     image.save("black-hole.png").unwrap();

@@ -9,6 +9,8 @@ pub struct Renderer {
     height: u32,
     state: State,
     target: Vec<u8>,
+    frames: u32,
+    frame_count: usize,
 }
 
 impl Renderer {
@@ -21,6 +23,8 @@ impl Renderer {
             height,
             state: pollster::block_on(State::new(&instance, &target, width, height)),
             target,
+            frames: 1,
+            frame_count: 0,
         }
     }
 
@@ -51,42 +55,27 @@ impl Renderer {
     }
 
     pub fn set_frames(&mut self, frames: u32) {
-        self.state.view.frames = frames;
+        self.frames = frames;
     }
 
     pub fn render(&mut self) {
-        let target_view = self.state.target.create_view(&wgpu::TextureViewDescriptor::default());
+        for _ in 0..self.frames {
+            self.state.view.frame_count = self.frame_count as u32;
+            self.state
+                .queue
+                .write_buffer(&self.state.view_buffer, 0, bytemuck::cast_slice(&[self.state.view]));
+
+            self.render_frame();
+        }
 
         let mut encoder = self
             .state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            pass.set_pipeline(&self.state.render_pipeline);
-            pass.set_bind_group(0, &self.state.view_bind_group, &[]);
-            pass.set_bind_group(1, &self.state.sky_bind_group, &[]);
-            pass.draw(0..3, 0..1);
-        }
-
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.state.target,
+                texture: &self.state.last_frame_textures[0],
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -120,6 +109,48 @@ impl Renderer {
         }
 
         self.state.output_staging_buffer.unmap();
+    }
+
+    pub fn render_frame(&mut self) {
+        let mut encoder = self
+            .state
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+        let current_frame_view = &self.state.last_frame_views[self.frame_count % 2];
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("render_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: current_frame_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            pass.set_pipeline(&self.state.render_pipeline);
+            pass.set_bind_group(0, &self.state.last_frame_bind_groups[(self.frame_count + 1) % 2], &[]);
+            pass.set_bind_group(1, &self.state.view_bind_group, &[]);
+            pass.set_bind_group(2, &self.state.sky_bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+
+        encoder.copy_texture_to_texture(
+            self.state.last_frame_textures[self.frame_count % 2].as_image_copy(),
+            self.state.last_frame_textures[(self.frame_count + 1) % 2].as_image_copy(),
+            self.state.last_frame_textures[0].size(),
+        );
+
+        self.state.queue.submit(std::iter::once(encoder.finish()));
+
+        self.frame_count += 1;
     }
 
     pub fn target(self) -> Vec<u8> {

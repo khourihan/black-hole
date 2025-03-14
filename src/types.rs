@@ -7,6 +7,6 @@ pub struct View {
     pub position: [f32; 3],
     pub focal_length: f32,
     pub resolution: [u32; 2],
+    pub frame_count: u32,
     pub flags: u32,
-    pub frames: u32,
 }

@@ -12,16 +12,19 @@ struct View {
     position: vec3<f32>,
     focal_length: f32,
     resolution: vec2<u32>,
+    frame_count: u32,
     flags: u32,
-    frames: u32,
 };
 
 @group(0) @binding(0)
-var<uniform> view: View;
+var last_frame: texture_2d<f32>;
 
 @group(1) @binding(0)
+var<uniform> view: View;
+
+@group(2) @binding(0)
 var sky_texture: texture_cube<f32>;
-@group(1) @binding(1)
+@group(2) @binding(1)
 var sky_sampler: sampler;
 
 @vertex
@@ -35,9 +38,8 @@ fn vertex(in: VertexInput) -> VertexOutput {
     return VertexOutput(position, uv);
 }
 
-alias float = f32;
-const PI: float = 3.1415927;
-const TAU: float = 6.28318531;
+const PI: f32 = 3.1415927;
+const TAU: f32 = 6.28318531;
 
 fn rotate2(v: vec2<f32>, t: f32) -> vec2<f32> {
     let s = sin(t);
@@ -238,12 +240,12 @@ const disc_temperature_offset: f32 = 2000.0;
 const disc_radial_scale: f32 = 8.0;
 
 /// Minimum timestep for spacetime pathtracer
-const dt_min: f32 = 0.03;
+const dt_min: f32 = 0.01;
 // Maximum timestep for spacetime pathtracer
-const dt_max: f32 = 0.3; // can be 10.0 for no accretion disc
+const dt_max: f32 = 0.1; // can be 10.0 for no accretion disc
 
 // Number of timesteps for spacetime pathtracer
-const steps: u32 = 4096u; // can be 128u for no accretion disc
+const steps: u32 = 2048u; // can be 128u for no accretion disc
 
 var<private> dt: f32 = dt_min;
 
@@ -362,7 +364,13 @@ fn dhstep(s: mat2x4<f32>, dt: f32) -> mat2x4<f32> {
     return dqp;
 }
 
-fn render_frame(frag_coord: vec2<f32>, render_skybox: bool, render_disc: bool) -> vec4<f32> {
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let render_skybox = (view.flags & 1u) != 0u;
+    let render_disc = ((view.flags >> 1u) & 1u) != 0u;
+
+    let frag_coord = in.uv * vec2<f32>(view.resolution.xy);
+    rng_state = view.frame_count * view.resolution.x * view.resolution.y + u32(frag_coord.y) * view.resolution.x + u32(frag_coord.x);
     let pos = (2.0 * (frag_coord + rand2() - 0.5) - vec2<f32>(view.resolution.xy)) / f32(view.resolution.y);
 
     let rd = normalize((view.camera * normalize(vec4(pos, view.focal_length, 1.0))).xyz);
@@ -433,36 +441,16 @@ fn render_frame(frag_coord: vec2<f32>, render_skybox: bool, render_disc: bool) -
         col = r;
     }
 
+    var old_col = vec4(0.0);
+
+    if (view.frame_count != 0u) {
+        let load_coord = vec2(in.uv.x, 1.0 - in.uv.y) * vec2<f32>(view.resolution.xy);
+        old_col = textureLoad(last_frame, vec2<u32>(load_coord), 0);
+    }
+
     if (discard_sample) {
-        return vec4(0.0);
+        return old_col;
     } else {
-        return vec4(col, 1.0);
+        return vec4(col, 1.0) + old_col;
     }
-}
-
-const exposure: f32 = 1.0;
-
-fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
-    return clamp(mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, step(c, vec3(0.0031308))), vec3(0.0), vec3(1.0));
-}
-
-fn tonemap(color: vec3<f32>) -> vec3<f32> {
-    var c = smoothstep(vec3(0.0), vec3(1.0), 1.0 - exp(-color * exposure));
-    return c;
-}
-
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let render_skybox = (view.flags & 1u) != 0u;
-    let render_disc = ((view.flags >> 1u) & 1u) != 0u;
-    let frag_coord = in.uv * vec2<f32>(view.resolution.xy);
-
-    var col = vec4(0.0);
-
-    for (var frame = 0u; frame < view.frames; frame++) {
-        rng_state = frame * view.resolution.x * view.resolution.y + u32(frag_coord.y) * view.resolution.x + u32(frag_coord.x);
-        col += render_frame(frag_coord, render_skybox, render_disc);
-    }
-
-    return vec4(linear_to_srgb(tonemap(col.rgb / col.a)), 1.0);
 }

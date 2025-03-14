@@ -15,6 +15,9 @@ pub struct State {
     pub view: View,
     pub view_buffer: wgpu::Buffer,
     pub view_bind_group: wgpu::BindGroup,
+    pub last_frame_textures: [wgpu::Texture; 2],
+    pub last_frame_views: [wgpu::TextureView; 2],
+    pub last_frame_bind_groups: [wgpu::BindGroup; 2],
     pub sky_texture: wgpu::Texture,
     pub sky_sampler: wgpu::Sampler,
     pub sky_bind_group: wgpu::BindGroup,
@@ -71,6 +74,73 @@ impl State {
         let scale_factor: f32 = 1.0;
 
         let pathtrace_shader = device.create_shader_module(wgpu::include_wgsl!("pathtrace.wgsl"));
+
+        let last_frame_textures = [
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("last_frame_texture_1"),
+                size: target.size(),
+                mip_level_count: target.mip_level_count(),
+                sample_count: target.sample_count(),
+                dimension: target.dimension(),
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[wgpu::TextureFormat::Rgba32Float],
+            }),
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("last_frame_texture_2"),
+                size: target.size(),
+                mip_level_count: target.mip_level_count(),
+                sample_count: target.sample_count(),
+                dimension: target.dimension(),
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[wgpu::TextureFormat::Rgba32Float],
+            }),
+        ];
+
+        let last_frame_views = [
+            last_frame_textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
+            last_frame_textures[1].create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
+
+        let last_frame_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("last_frame_layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+
+        let last_frame_bind_groups = [
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("last_frame_bind_group_1"),
+                layout: &last_frame_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&last_frame_views[0]),
+                }],
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("last_frame_bind_group_2"),
+                layout: &last_frame_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&last_frame_views[1]),
+                }],
+            }),
+        ];
 
         let view = View {
             resolution: [width, height],
@@ -219,7 +289,11 @@ impl State {
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("render_pipeline_layout"),
-            bind_group_layouts: &[&view_bind_group_layout, &sky_bind_group_layout],
+            bind_group_layouts: &[
+                &last_frame_bind_group_layout,
+                &view_bind_group_layout,
+                &sky_bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
 
@@ -268,6 +342,9 @@ impl State {
             view,
             view_buffer,
             view_bind_group,
+            last_frame_textures,
+            last_frame_views,
+            last_frame_bind_groups,
             render_pipeline,
             sky_texture,
             sky_sampler,
