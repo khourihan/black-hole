@@ -72,7 +72,7 @@ pub struct App<R: Renderer> {
 
 impl<R: Renderer> App<R> {
     pub fn new(renderer: R) -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
         Self {
             width: 1360,
