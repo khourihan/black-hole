@@ -16,11 +16,31 @@ struct View {
     flags: u32,
 };
 
+struct BlackHole {
+    cdist: f32,
+    a: f32,
+    m: f32,
+    q: f32,
+    disc_radius: f32,
+    disc_height: f32,
+    disc_falloff: vec2<f32>,
+    disc_emission_falloff: vec2<f32>,
+    disc_temperature_scale: f32,
+    disc_temperature_offset: f32,
+    disc_radial_scale: f32,
+
+    dt_min: f32,
+    dt_max: f32,
+    steps: u32,
+};
+
 @group(0) @binding(0)
 var last_frame: texture_2d<f32>;
 
 @group(1) @binding(0)
 var<uniform> view: View;
+@group(1) @binding(1)
+var<uniform> bh: BlackHole;
 
 @group(2) @binding(0)
 var sky_texture: texture_cube<f32>;
@@ -210,44 +230,13 @@ fn diag(a: vec4<f32>) -> mat4x4<f32> {
                   0.0, 0.0, 0.0, a.w);
 }
 
-// Radius of the sphere of influence in which gravitational lensing occurs
-const cdist: f32 = 120.0;
-// Black hole spin factor (J/M^2)
-const a: f32 = 0.3;
-// Black hole mass
-const m: f32 = 1.0;
-// Black hole charge
-const Q: f32 = 0.2;
 // Epsilon when approximating gradients
 const eps: f32 = 0.005;
 const dx: vec2<f32> = vec2<f32>(0.0, eps);
 // Max ray bounces (only applies to volumetric accretion disc)
 const max_bounces: u32 = 4;
 
-// Radius of the accretion disc
-const disc_radius: f32 = 10.0;
-// Height of the accretion disc
-const disc_height: f32 = 0.8;
-// Falloff of the volumetric accretion disc (radial, vertical)
-const disc_falloff: vec2<f32> = vec2<f32>(0.1, 0.5);
-// Falloff of the emission of the volumetric accretion disc (radial, vertical)
-const disc_emission_falloff: vec2<f32> = vec2<f32>(0.06, 0.6);
-// Disc temperature variance
-const disc_temperature_scale: f32 = 4000.0;
-// Disc temperature base value
-const disc_temperature_offset: f32 = 2000.0;
-// Scale of noise on the accretion disc
-const disc_radial_scale: f32 = 8.0;
-
-/// Minimum timestep for spacetime pathtracer
-const dt_min: f32 = 0.03;
-// Maximum timestep for spacetime pathtracer
-const dt_max: f32 = 1.0; // can be 10.0 for no accretion disc
-
-// Number of timesteps for spacetime pathtracer
-const steps: u32 = 256u; // can be 128u for no accretion disc
-
-var<private> dt: f32 = dt_min;
+var<private> dt: f32 = 0.03;
 
 fn sphere_intersect(ro: vec3<f32>, rd: vec3<f32>, sphere: vec4<f32>) -> f32 {
     let oc = ro - sphere.xyz;
@@ -275,18 +264,18 @@ fn sample_volume(p: vec3<f32>, redshift: f32) -> SampleVolumeOut {
     out.v = 0.0;
 
     // Reject if not hit disc
-    if (dot(p.xy, p.xy) > disc_radius * disc_radius || p.z * p.z > disc_height * disc_height) {
+    if (dot(p.xy, p.xy) > bh.disc_radius * bh.disc_radius || p.z * p.z > bh.disc_height * bh.disc_height) {
         return out;
     };
 
-    let n0 = fbm(disc_radial_scale * vec3(rotate2(p.xy, (8.0 * p.z) + (disc_radial_scale * length(p.xy))), p.z).xyz, 8u);
+    let n0 = fbm(bh.disc_radial_scale * vec3(rotate2(p.xy, (8.0 * p.z) + (bh.disc_radial_scale * length(p.xy))), p.z).xyz, 8u);
 
-    let d_falloff = length(disc_falloff.xxy * p);
-    let e_falloff = length(disc_emission_falloff.xxy * p);
+    let d_falloff = length(bh.disc_falloff.xxy * p);
+    let e_falloff = length(bh.disc_emission_falloff.xxy * p);
 
     // Sample the color temperature of the accretion disc (with some random jitter) and normalize
     let t = rand();
-    out.e = xyz2rgb(blackbody((disc_temperature_scale * t * t) + disc_temperature_offset));
+    out.e = xyz2rgb(blackbody((bh.disc_temperature_scale * t * t) + bh.disc_temperature_offset));
     out.e = clamp(out.e / max(max(max(out.e.r, out.e.g), out.e.b), 0.01), vec3(0.0), vec3(1.0));
 
     // Account for density and emission falloff near edges of disc
@@ -299,11 +288,11 @@ fn sample_volume(p: vec3<f32>, redshift: f32) -> SampleVolumeOut {
 // Kerr-Newman metric in Kerr-Schild coordinates for spinning charged black hole rotating around the Z-axis.
 fn metric(x: vec4<f32>) -> mat4x4<f32> {
     let p = x.yzw;
-    let rho = dot(p, p) - a * a;
-    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * p.z * p.z));
+    let rho = dot(p, p) - bh.a * bh.a;
+    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * bh.a * bh.a * p.z * p.z));
     let r = sqrt(r2);
-    let k = vec4(1.0, (r * p.x + a * p.y) / (r2 + a * a), (r * p.y - a * p.x) / (r2 + a * a), p.z / r);
-    let f = smoothstep(cdist * 0.5, 0.0, r) * r2 * (2.0 * m * r - Q * Q) / (r2 * r2 + a * a * p.z * p.z);
+    let k = vec4(1.0, (r * p.x + bh.a * p.y) / (r2 + bh.a * bh.a), (r * p.y - bh.a * p.x) / (r2 + bh.a * bh.a), p.z / r);
+    let f = smoothstep(bh.cdist * 0.5, 0.0, r) * r2 * (2.0 * bh.m * r - bh.q * bh.q) / (r2 * r2 + bh.a * bh.a * p.z * p.z);
     return f * mat4x4(k.x * k, k.y * k, k.z * k, k.w * k) + diag(vec4(-1.0, 1.0, 1.0, 1.0));
 }
 
@@ -326,17 +315,17 @@ fn dxdt_from_momentum(p: vec4<f32>, x: vec4<f32>) -> vec4<f32> {
 
 fn update_dt(p: vec4<f32>, x: vec4<f32>) -> bool {
     let pos = x.yzw;
-    let rho = dot(pos, pos) - a * a;
-    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * a * a * pos.z * pos.z));
+    let rho = dot(pos, pos) - bh.a * bh.a;
+    let r2 = 0.5 * (rho + sqrt(rho * rho + 4.0 * bh.a * bh.a * pos.z * pos.z));
     let r = sqrt(r2);
 
-    dt = mix(dt_min, dt_max, pow(max(r - 1.0, 0.0) / cdist, 1.0));
+    dt = mix(bh.dt_min, bh.dt_max, pow(max(r - 1.0, 0.0) / bh.cdist, 1.0));
 
-    if (r < 1.0 && a <= 1.0 || length(p) > 45.0) {
+    if (r < 1.0 && bh.a <= 1.0 || length(p) > 45.0) {
         return true;
     }
 
-    if (length(x.yzw) > cdist) {
+    if (length(x.yzw) > bh.cdist) {
         return true;
     }
 
@@ -376,7 +365,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let rd = normalize((view.camera * normalize(vec4(pos, view.focal_length, 1.0))).xyz);
     var ro = view.position;
 
-    let t0 = sphere_intersect(ro, rd, vec4(0.0, 0.0, 0.0, cdist));
+    let t0 = sphere_intersect(ro, rd, vec4(0.0, 0.0, 0.0, bh.cdist));
     if (t0 > 0.0 && t0 < 1e10) {
         ro += rd * t0;
     }
@@ -392,7 +381,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var r = vec3(0.0);
     var att = vec3(1.0);
 
-    for (var i = 0u; i < steps; i++) {
+    for (var i = 0u; i < bh.steps; i++) {
         if (render_disc) {
             if (bounces > max_bounces) {
                 discard_sample = true;

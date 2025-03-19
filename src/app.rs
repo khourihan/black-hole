@@ -6,12 +6,13 @@ use winit::{
     application::ApplicationHandler, dpi::PhysicalSize, event::WindowEvent, event_loop::ActiveEventLoop, window::Window,
 };
 
-use crate::{input::InputManager, state::State};
+use crate::{input::InputManager, state::State, types::BlackHole};
 
 pub struct RenderContext {
     camera: Mat4,
     position: Vec3,
     flags: u32,
+    pub black_hole: BlackHole,
     pub focal_length: f32,
     pub reset_frame_count: bool,
 }
@@ -22,6 +23,7 @@ impl RenderContext {
             camera: Mat4::IDENTITY,
             position: Vec3::ZERO,
             focal_length: 1.5,
+            black_hole: BlackHole::default(),
             reset_frame_count: true,
             flags: u32::MAX,
         }
@@ -207,10 +209,10 @@ impl<R: Renderer> App<R> {
             pass.set_bind_group(0, &state.last_frame_bind_groups[self.frame_count % 2], &[]);
             pass.draw(0..3, 0..1);
 
-            // state
-            //     .gui
-            //     .renderer
-            //     .render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
+            state
+                .gui
+                .renderer
+                .render(&mut pass.forget_lifetime(), &clipped_primitives, &screen_descriptor);
         }
 
         encoder.copy_texture_to_texture(
@@ -283,6 +285,11 @@ impl<R: Renderer> ApplicationHandler for App<R> {
                 state
                     .queue
                     .write_buffer(&state.view_buffer, 0, bytemuck::cast_slice(&[state.view]));
+
+                state.black_hole = self.render_ctx.black_hole;
+                state
+                    .queue
+                    .write_buffer(&state.black_hole_buffer, 0, bytemuck::cast_slice(&[state.black_hole]));
 
                 match self.handle_redraw() {
                     Err(wgpu::SurfaceError::Lost) => self.handle_resized(self.width, self.height),

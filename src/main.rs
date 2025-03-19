@@ -2,6 +2,7 @@ use std::f32::consts::{PI, TAU};
 
 use glam::{EulerRot, Quat, Vec2, Vec3};
 use input::InputManager;
+use types::BlackHole;
 use winit::{
     event::MouseButton,
     event_loop::{ControlFlow, EventLoop},
@@ -22,6 +23,9 @@ struct Renderer {
     pitch: f32,
     rotation: Quat,
     focal_length: f32,
+    black_hole: BlackHole,
+    skybox_enabled: bool,
+    disc_enabled: bool,
     info_window_open: bool,
     is_new: bool,
     is_changed: bool,
@@ -106,14 +110,104 @@ impl app::Renderer for Renderer {
         ctx.set_render_disc();
         ctx.focal_length = self.focal_length;
         ctx.reset_frame_count = self.is_changed;
+        ctx.black_hole = self.black_hole;
+
+        if self.skybox_enabled {
+            ctx.set_render_skybox();
+        } else {
+            ctx.unset_render_skybox();
+        }
+
+        if self.disc_enabled {
+            ctx.set_render_disc();
+        } else {
+            ctx.unset_render_disc();
+        }
     }
 
     fn gui(&mut self, ctx: &egui::Context) {
-        // egui::Window::new("")
-        //     .open(&mut self.info_window_open)
-        //     .show(ctx, |ui| {
-        //
-        //     });
+        egui::Window::new("").open(&mut self.info_window_open).show(ctx, |ui| {
+            ui.checkbox(&mut self.skybox_enabled, "Skybox");
+            ui.checkbox(&mut self.disc_enabled, "Accretion Disc");
+
+            ui.horizontal(|ui| {
+                ui.label("cdist");
+                ui.add(egui::DragValue::new(&mut self.black_hole.cdist));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("a");
+                ui.add(egui::DragValue::new(&mut self.black_hole.a).range(0f32..=1f32));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("m");
+                ui.add(egui::DragValue::new(&mut self.black_hole.m));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("q");
+                ui.add(egui::DragValue::new(&mut self.black_hole.q).range(0f32..=128f32));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("dt min");
+                ui.add(egui::DragValue::new(&mut self.black_hole.dt_min).range(0f32..=10f32));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("dt max");
+                ui.add(egui::DragValue::new(&mut self.black_hole.dt_max).range(0f32..=100f32));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("steps");
+                ui.add(egui::DragValue::new(&mut self.black_hole.steps).range(1u32..=1024u32));
+            });
+
+            if self.disc_enabled {
+                ui.horizontal(|ui| {
+                    ui.label("disc radius");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_radius).range(0f32..=f32::MAX));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("disc height");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_height).range(0f32..=f32::MAX));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("disc falloff (radial:");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_falloff.x).range(0f32..=f32::MAX));
+                    ui.label(", vertical:");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_falloff.y).range(0f32..=f32::MAX));
+                    ui.label(")");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("disc emission falloff (radial:");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_emission_falloff.x).range(0f32..=f32::MAX));
+                    ui.label(", vertical:");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_emission_falloff.y).range(0f32..=f32::MAX));
+                    ui.label(")");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("disc temperature scale");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_temperature_scale).range(0f32..=f32::MAX));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("disc temperature offset");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_temperature_offset).range(0f32..=f32::MAX));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("disc radial scale");
+                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_radial_scale).range(0f32..=f32::MAX));
+                });
+            }
+        });
     }
 }
 
@@ -130,6 +224,9 @@ impl Default for Renderer {
             info_window_open: true,
             is_new: true,
             is_changed: false,
+            black_hole: BlackHole::default(),
+            skybox_enabled: true,
+            disc_enabled: true,
         }
     }
 }

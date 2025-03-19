@@ -3,7 +3,10 @@ use glam::Mat4;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
-use crate::{gui::GuiRenderer, types::View};
+use crate::{
+    gui::GuiRenderer,
+    types::{BlackHole, View},
+};
 
 pub struct State {
     pub device: wgpu::Device,
@@ -18,9 +21,12 @@ pub struct State {
     pub view: View,
     pub view_buffer: wgpu::Buffer,
     pub view_bind_group: wgpu::BindGroup,
+    pub black_hole: BlackHole,
+    pub black_hole_buffer: wgpu::Buffer,
     pub last_frame_textures: [wgpu::Texture; 2],
     pub last_frame_views: [wgpu::TextureView; 2],
     pub last_frame_bind_groups: [wgpu::BindGroup; 2],
+    pub last_frame_bind_group_layout: wgpu::BindGroupLayout,
     pub sky_texture: wgpu::Texture,
     pub sky_sampler: wgpu::Sampler,
     pub sky_bind_group: wgpu::BindGroup,
@@ -169,27 +175,53 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let black_hole = BlackHole::default();
+
+        let black_hole_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("black_hole_buffer"),
+            contents: bytemuck::cast_slice(&[black_hole]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let view_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("view_layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: std::num::NonZero::new(std::mem::size_of::<View>() as u64),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZero::new(std::mem::size_of::<View>() as u64),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZero::new(std::mem::size_of::<BlackHole>() as u64),
+                    },
+                    count: None,
+                },
+            ],
         });
 
         let view_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("view_bind_group"),
             layout: &view_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: view_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: view_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: black_hole_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let (sky_image_data, sky_im_width, sky_im_height) = {
@@ -399,9 +431,12 @@ impl State {
             view,
             view_buffer,
             view_bind_group,
+            black_hole,
+            black_hole_buffer,
             last_frame_views,
             last_frame_textures,
             last_frame_bind_groups,
+            last_frame_bind_group_layout,
             render_pipeline,
             postprocess_pipeline,
             sky_texture,
@@ -427,12 +462,12 @@ impl State {
                 mip_level_count: surface_texture.texture.mip_level_count(),
                 sample_count: surface_texture.texture.sample_count(),
                 dimension: surface_texture.texture.dimension(),
-                format: surface_texture.texture.format(),
+                format: wgpu::TextureFormat::Rgba32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
                     | wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::COPY_SRC,
-                view_formats: Default::default(),
+                view_formats: &[wgpu::TextureFormat::Rgba32Float],
             }),
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("last_frame_texture_2"),
@@ -440,13 +475,37 @@ impl State {
                 mip_level_count: surface_texture.texture.mip_level_count(),
                 sample_count: surface_texture.texture.sample_count(),
                 dimension: surface_texture.texture.dimension(),
-                format: surface_texture.texture.format(),
+                format: wgpu::TextureFormat::Rgba32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
                     | wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::COPY_SRC,
-                view_formats: Default::default(),
+                view_formats: &[wgpu::TextureFormat::Rgba32Float],
             }),
-        ]
+        ];
+
+        self.last_frame_views = [
+            self.last_frame_textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
+            self.last_frame_textures[1].create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
+
+        self.last_frame_bind_groups = [
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("last_frame_bind_group_1"),
+                layout: &self.last_frame_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.last_frame_views[0]),
+                }],
+            }),
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("last_frame_bind_group_2"),
+                layout: &self.last_frame_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.last_frame_views[1]),
+                }],
+            }),
+        ];
     }
 }
