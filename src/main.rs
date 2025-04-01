@@ -127,84 +127,162 @@ impl app::Renderer for Renderer {
 
     fn gui(&mut self, ctx: &egui::Context) {
         egui::Window::new("").open(&mut self.info_window_open).show(ctx, |ui| {
-            ui.checkbox(&mut self.skybox_enabled, "Skybox");
-            ui.checkbox(&mut self.disc_enabled, "Accretion Disc");
+            if ui.checkbox(&mut self.skybox_enabled, "Skybox").changed() {
+                self.is_changed = true;
+            };
+            if ui.checkbox(&mut self.disc_enabled, "Accretion Disc").changed() {
+                self.is_changed = true;
+            };
 
             ui.horizontal(|ui| {
                 ui.label("cdist");
-                ui.add(egui::DragValue::new(&mut self.black_hole.cdist));
+                if ui.add(egui::DragValue::new(&mut self.black_hole.cdist)).changed() {
+                    self.is_changed = true;
+                };
             });
 
             ui.horizontal(|ui| {
                 ui.label("a");
-                ui.add(egui::DragValue::new(&mut self.black_hole.a).range(0f32..=1f32));
+                if ui
+                    .add(egui::DragValue::new(&mut self.black_hole.a).range(0f32..=1f32))
+                    .changed()
+                {
+                    self.is_changed = true;
+                };
             });
 
             ui.horizontal(|ui| {
                 ui.label("m");
-                ui.add(egui::DragValue::new(&mut self.black_hole.m));
+                if ui.add(egui::DragValue::new(&mut self.black_hole.m)).changed() {
+                    self.is_changed = true;
+                };
             });
 
             ui.horizontal(|ui| {
                 ui.label("q");
-                ui.add(egui::DragValue::new(&mut self.black_hole.q).range(0f32..=128f32));
+                if ui
+                    .add(egui::DragValue::new(&mut self.black_hole.q).range(0f32..=128f32))
+                    .changed()
+                {
+                    self.is_changed = true;
+                };
             });
 
             ui.horizontal(|ui| {
                 ui.label("dt min");
-                ui.add(egui::DragValue::new(&mut self.black_hole.dt_min).range(0f32..=10f32));
+                if ui
+                    .add(egui::DragValue::new(&mut self.black_hole.dt_min).range(0f32..=10f32))
+                    .changed()
+                {
+                    self.is_changed = true;
+                };
             });
 
             ui.horizontal(|ui| {
                 ui.label("dt max");
-                ui.add(egui::DragValue::new(&mut self.black_hole.dt_max).range(0f32..=100f32));
+                if ui
+                    .add(egui::DragValue::new(&mut self.black_hole.dt_max).range(0f32..=100f32))
+                    .changed()
+                {
+                    self.is_changed = true;
+                };
             });
 
             ui.horizontal(|ui| {
                 ui.label("steps");
-                ui.add(egui::DragValue::new(&mut self.black_hole.steps).range(1u32..=1024u32));
+                if ui
+                    .add(egui::DragValue::new(&mut self.black_hole.steps).range(1u32..=1024u32))
+                    .changed()
+                {
+                    self.is_changed = true;
+                };
             });
 
             if self.disc_enabled {
                 ui.horizontal(|ui| {
                     ui.label("disc radius");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_radius).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_radius).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("disc height");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_height).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_height).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("disc falloff (radial:");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_falloff.x).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_falloff.x).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                     ui.label(", vertical:");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_falloff.y).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_falloff.y).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                     ui.label(")");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("disc emission falloff (radial:");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_emission_falloff.x).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_emission_falloff.x).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true
+                    };
                     ui.label(", vertical:");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_emission_falloff.y).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_emission_falloff.y).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                     ui.label(")");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("disc temperature scale");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_temperature_scale).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_temperature_scale).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("disc temperature offset");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_temperature_offset).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_temperature_offset).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("disc radial scale");
-                    ui.add(egui::DragValue::new(&mut self.black_hole.disc_radial_scale).range(0f32..=f32::MAX));
+                    if ui
+                        .add(egui::DragValue::new(&mut self.black_hole.disc_radial_scale).range(0f32..=f32::MAX))
+                        .changed()
+                    {
+                        self.is_changed = true;
+                    };
                 });
             }
         });
