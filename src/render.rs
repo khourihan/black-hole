@@ -149,6 +149,7 @@ impl Renderer {
         );
 
         self.state.queue.submit(std::iter::once(encoder.finish()));
+        self.state.device.poll(wgpu::Maintain::wait()).panic_on_timeout();
 
         self.frame_count += 1;
     }
